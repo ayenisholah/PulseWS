@@ -1,0 +1,113 @@
+# PulseWS
+
+Self-hosted, Pusher-compatible WebSocket pub/sub server in TypeScript.
+
+PulseWS is being built as a drop-in real-time messaging server for applications
+that already use `pusher-js` and the official Pusher server SDKs. The goal is
+protocol compatibility first, then Redis-backed horizontal fan-out,
+observability, and measured load-test results.
+
+## Status
+
+Pre-alpha. The TypeScript scaffold is in place; protocol implementation starts
+with the config loader and WebSocket handshake.
+
+Implemented:
+
+| Area | Status |
+|---|---|
+| TypeScript project scaffold | Done |
+| Strict typecheck and Vitest verify loop | Done |
+| Pusher protocol handshake | Planned |
+| Public/private/presence channels | Planned |
+| Signed REST publish API | Planned |
+| Redis fan-out adapter | Planned |
+| Prometheus metrics and Grafana dashboard | Planned |
+| k6 load-test writeup with measured results | Planned |
+
+No performance numbers are claimed until they are measured and committed with
+the load-test report.
+
+## Why
+
+Hosted real-time services price by concurrent connections and message volume.
+For teams that already depend on the Pusher protocol, the lowest-friction
+self-hosting path is protocol compatibility: keep the existing client and
+server SDKs, change the host configuration, and move the fan-out infrastructure
+in-house.
+
+PulseWS targets that migration path:
+
+- `pusher-js` protocol 7 compatibility.
+- Public, private, and presence channels.
+- Signed publish API compatible with the official Pusher Node SDK.
+- Redis pub/sub for multi-node delivery.
+- Per-app credentials, limits, rate limiting, and Prometheus metrics.
+- k6 scenarios that publish measured connection and latency results.
+
+## Development
+
+Requirements:
+
+- Node.js 20+
+- npm
+- Bash for the commit-history audit script, or Git Bash on Windows
+
+Install dependencies:
+
+```sh
+npm install
+```
+
+Run the project verification loop:
+
+```sh
+npm run verify
+```
+
+On Windows, the repository-level verification script may need an execution
+policy bypass:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\verify.ps1
+```
+
+## Roadmap
+
+The implementation plan is intentionally ordered around compatibility gates:
+
+1. Config loader and app credential validation.
+2. uWebSockets.js server skeleton and Pusher connection handshake.
+3. Public channels, ping/pong, and local event delivery.
+4. Signed REST publish endpoint verified against the official Pusher SDK.
+5. Private channels, presence channels, and client events.
+6. Redis adapter, cluster presence, metrics, Docker Compose, and load tests.
+
+See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for the binding
+task list and [docs/pulsews-engineering-doc.md](docs/pulsews-engineering-doc.md)
+for protocol and architecture details.
+
+## Scope
+
+PulseWS deliberately does not include a bespoke admin dashboard, webhooks,
+database-backed app management, encrypted channels, or clustering beyond Redis
+pub/sub. Those are documented as future work so the core compatibility and
+scaling story stays focused.
+
+## Repository Map
+
+| Path | Purpose |
+|---|---|
+| `src/` | TypeScript source |
+| `test/` | Vitest unit and integration tests |
+| `docs/pulsews-engineering-doc.md` | Binding engineering spec |
+| `docs/IMPLEMENTATION_PLAN.md` | Ordered implementation plan |
+| `docs/MILESTONES.md` | Compatibility and release gates |
+| `docs/DECISIONS.md` | Approved decisions and deviations |
+| `docs/PROGRESS.md` | Append-only implementation log |
+| `scripts/verify.*` | Local verification entrypoints |
+| `.githooks/` | Commit hygiene hooks |
+
+## License
+
+[MIT](LICENSE) (c) 2026 Shola Ayeni

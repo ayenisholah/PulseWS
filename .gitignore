@@ -1,0 +1,16 @@
+# dependencies & build
+node_modules/
+dist/
+coverage/
+
+# runtime config with secrets (spec §12) — commit the .example file instead
+pulsews.config.json
+
+# env & logs
+.env
+.env.*
+*.log
+
+# OS noise
+.DS_Store
+Thumbs.db

@@ -1,0 +1,7 @@
+# Hooks and shell scripts must stay LF or sh refuses to run them on Windows.
+* text=auto eol=lf
+
+*.png binary
+*.gif binary
+*.jpg binary
+*.ico binary
