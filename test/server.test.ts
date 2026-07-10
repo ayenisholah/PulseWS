@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 
-import { afterEach, describe, expect, test } from "vitest";
+import PusherServer from "pusher";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type { PulseWsConfig } from "../src/config.js";
 import {
@@ -161,6 +162,82 @@ describe("connection liveness", () => {
   });
 });
 
+describe("signed REST publish authentication", () => {
+  test("accepts publishes from the unmodified official Pusher SDK", async () => {
+    const server = await startTestServer();
+    const sdk = createServerSdk(server.port);
+
+    const response = await sdk.trigger(
+      "public-updates",
+      "demo.event",
+      { ok: true },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({});
+  });
+
+  test("rejects an SDK-generated request with a tampered signature", async () => {
+    const server = await startTestServer();
+    const sdk = createServerSdk(server.port);
+    const body = createPublishBody();
+    const signedQuery = sdk.createSignedQueryString({
+      method: "POST",
+      path: "/apps/demo-app/events",
+      body,
+    });
+    const tamperedQuery = signedQuery.replace(
+      /auth_signature=[0-9a-f]+/,
+      `auth_signature=${"0".repeat(64)}`,
+    );
+
+    const response = await postSignedRequest(server.port, tamperedQuery, body);
+
+    expect(response.status).toBe(401);
+  });
+
+  test("rejects a correctly signed stale SDK request", async () => {
+    const server = await startTestServer();
+    const sdk = createServerSdk(server.port);
+    const body = createPublishBody();
+    const currentTime = Date.now();
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(currentTime - 601_000);
+    let signedQuery: string;
+    try {
+      signedQuery = sdk.createSignedQueryString({
+        method: "POST",
+        path: "/apps/demo-app/events",
+        body,
+      });
+    } finally {
+      dateNow.mockRestore();
+    }
+
+    const response = await postSignedRequest(server.port, signedQuery, body);
+
+    expect(response.status).toBe(401);
+  });
+
+  test("returns 401 for an unknown app id", async () => {
+    const server = await startTestServer();
+    const sdk = createServerSdk(server.port);
+    const body = createPublishBody();
+    const path = "/apps/unknown-app/events";
+    const signedQuery = sdk.createSignedQueryString({
+      method: "POST",
+      path,
+      body,
+    });
+
+    const response = await fetch(
+      `http://127.0.0.1:${server.port}${path}?${signedQuery}`,
+      { method: "POST", body },
+    );
+
+    expect(response.status).toBe(401);
+  });
+});
+
 async function startTestServer(
   timing?: ServerTimingOptions,
 ): Promise<PulseWsServer> {
@@ -242,6 +319,36 @@ function createClient(key: string, port: number): PusherClient {
   });
   clients.push(client);
   return client;
+}
+
+function createServerSdk(port: number): PusherServer {
+  return new PusherServer({
+    appId: "demo-app",
+    key: "demo-key",
+    secret: "demo-secret",
+    host: "127.0.0.1",
+    port: String(port),
+    useTLS: false,
+  });
+}
+
+function createPublishBody(): string {
+  return JSON.stringify({
+    name: "demo.event",
+    channels: ["public-updates"],
+    data: JSON.stringify({ ok: true }),
+  });
+}
+
+function postSignedRequest(
+  port: number,
+  signedQuery: string,
+  body: string,
+): Promise<Response> {
+  return fetch(
+    `http://127.0.0.1:${port}/apps/demo-app/events?${signedQuery}`,
+    { method: "POST", body },
+  );
 }
 
 function waitForConnection(client: PusherClient): Promise<{ socketId: string }> {

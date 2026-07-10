@@ -1,5 +1,6 @@
 import uWS, { type us_listen_socket } from "uWebSockets.js";
 
+import { verifyRestRequest } from "./auth.js";
 import { topicFor, validatePublicChannelName } from "./channels.js";
 import type { AppConfig, PulseWsConfig } from "./config.js";
 import {
@@ -55,6 +56,9 @@ export async function startServer(
   timing: ServerTimingOptions = {},
 ): Promise<PulseWsServer> {
   const appsByKey = new Map(config.apps.map((app) => [app.key, app]));
+  const appsById = new Map(
+    config.apps.map((configuredApp) => [configuredApp.id, configuredApp]),
+  );
   const app = uWS.App();
   const acceptedSockets = new Set<uWS.WebSocket<SocketData>>();
   const activityTimeoutSeconds =
@@ -152,6 +156,61 @@ export async function startServer(
         data.subscriptions.clear();
       }
     },
+  });
+
+  app.post("/apps/:appId/events", (res, req) => {
+    const configuredApp = appsById.get(req.getParameter(0) ?? "");
+    const path = req.getUrl();
+    const rawQuery = req.getQuery();
+    const chunks: Buffer[] = [];
+    let aborted = false;
+    let completed = false;
+
+    res.onAborted(() => {
+      aborted = true;
+    });
+
+    res.onData((chunk, isLast) => {
+      if (aborted || completed) {
+        return;
+      }
+
+      chunks.push(Buffer.from(chunk));
+      if (!isLast) {
+        return;
+      }
+
+      completed = true;
+      const rawBody = Buffer.concat(chunks);
+      const authorized =
+        configuredApp !== undefined &&
+        verifyRestRequest({
+          app: configuredApp,
+          method: "POST",
+          path,
+          rawQuery,
+          rawBody,
+        });
+
+      if (aborted) {
+        return;
+      }
+
+      res.cork(() => {
+        if (authorized) {
+          res
+            .writeStatus("200 OK")
+            .writeHeader("content-type", "application/json")
+            .end("{}");
+          return;
+        }
+
+        res
+          .writeStatus("401 Unauthorized")
+          .writeHeader("content-type", "application/json")
+          .end("{}");
+      });
+    });
   });
 
   const listenSocket = await listen(app, config.port);
