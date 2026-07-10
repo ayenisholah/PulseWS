@@ -2,7 +2,9 @@ import Pusher from "pusher";
 import { describe, expect, test, vi } from "vitest";
 
 import {
+  createPresenceChannelAuth,
   createPrivateChannelAuth,
+  verifyPresenceChannelAuth,
   verifyPrivateChannelAuth,
   verifyRestRequest,
 } from "../src/auth.js";
@@ -54,6 +56,62 @@ describe("private channel authentication", () => {
         verifyPrivateChannelAuth(app, "1234.5678", "private-room", auth),
       ).toBe(false);
     }
+  });
+});
+
+describe("presence channel authentication", () => {
+  test("matches the official SDK authorization fixture", () => {
+    const socketId = "1234.5678";
+    const channel = "presence-room";
+    const member = { user_id: "user-1", user_info: { name: "Ada" } };
+    const fixture = sdk.authorizeChannel(socketId, channel, member);
+
+    expect(
+      createPresenceChannelAuth(
+        app,
+        socketId,
+        channel,
+        fixture.channel_data as string,
+      ),
+    ).toBe(fixture.auth);
+    expect(
+      verifyPresenceChannelAuth(
+        app,
+        socketId,
+        channel,
+        fixture.channel_data,
+        fixture.auth,
+      ),
+    ).toBe(true);
+  });
+
+  test("rejects tampered auth and channel data", () => {
+    const channelData = JSON.stringify({ user_id: "user-1" });
+    const auth = createPresenceChannelAuth(
+      app,
+      "1234.5678",
+      "presence-room",
+      channelData,
+    );
+
+    expect(
+      verifyPresenceChannelAuth(
+        app,
+        "1234.5678",
+        "presence-room",
+        `${channelData} `,
+        auth,
+      ),
+    ).toBe(false);
+    expect(
+      verifyPresenceChannelAuth(
+        app,
+        "1234.5678",
+        "presence-room",
+        channelData,
+        `${auth.slice(0, -1)}0`,
+      ),
+    ).toBe(false);
   });
 });
 

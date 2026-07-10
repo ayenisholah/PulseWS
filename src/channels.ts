@@ -7,7 +7,7 @@ const CHANNEL_NAME_PATTERN = /^[A-Za-z0-9_\-=@,.;]+$/;
 export type ChannelValidationResult =
   | {
       ok: true;
-      type: "public" | "private";
+      type: "public" | "private" | "presence";
       channel: string;
     }
   | {
@@ -69,7 +69,7 @@ export function validateSubscribableChannelName(
   }
 
   const type = classifyChannelName(channel);
-  if (type === "presence" || type === "encrypted") {
+  if (type === "encrypted") {
     return {
       ok: false,
       type,

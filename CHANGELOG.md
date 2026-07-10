@@ -29,6 +29,8 @@ release.
   Node.js example authorization endpoint.
 - Private-channel client events with sender exclusion and configurable
   per-connection token-bucket rate limiting.
+- Single-node presence channels with authenticated membership, unique-user
+  rosters, join/leave events, and disconnect cleanup.
 
 ### Changed
 

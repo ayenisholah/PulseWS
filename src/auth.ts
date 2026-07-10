@@ -47,6 +47,45 @@ export function verifyPrivateChannelAuth(
   );
 }
 
+export function createPresenceChannelAuth(
+  app: SubscriptionAuthApp,
+  socketId: string,
+  channel: string,
+  channelData: string,
+): string {
+  const signature = createHmac("sha256", app.secret)
+    .update(`${socketId}:${channel}:${channelData}`)
+    .digest("hex");
+
+  return `${app.key}:${signature}`;
+}
+
+export function verifyPresenceChannelAuth(
+  app: SubscriptionAuthApp,
+  socketId: string,
+  channel: string,
+  channelData: unknown,
+  auth: unknown,
+): boolean {
+  if (typeof channelData !== "string" || typeof auth !== "string") {
+    return false;
+  }
+
+  const separator = auth.indexOf(":");
+  if (separator < 1 || auth.slice(0, separator) !== app.key) {
+    return false;
+  }
+
+  const actualSignature = auth.slice(separator + 1);
+  const expectedSignature = createPresenceChannelAuth(
+    app,
+    socketId,
+    channel,
+    channelData,
+  ).slice(app.key.length + 1);
+  return safeEqualHex(expectedSignature, actualSignature, SHA256_HEX_LENGTH);
+}
+
 export type RestAuthRequest = {
   app: Pick<AppConfig, "key" | "secret">;
   method: string;

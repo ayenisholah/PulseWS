@@ -43,15 +43,16 @@ describe("channel helpers", () => {
     });
   });
 
-  test("accepts private subscriptions while keeping presence and encrypted unsupported", () => {
+  test("accepts private and presence subscriptions while keeping encrypted unsupported", () => {
     expect(validateSubscribableChannelName("private-room")).toEqual({
       ok: true,
       type: "private",
       channel: "private-room",
     });
-    expect(validateSubscribableChannelName("presence-room")).toMatchObject({
-      ok: false,
+    expect(validateSubscribableChannelName("presence-room")).toEqual({
+      ok: true,
       type: "presence",
+      channel: "presence-room",
     });
     expect(
       validateSubscribableChannelName("private-encrypted-room"),

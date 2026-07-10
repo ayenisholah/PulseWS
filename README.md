@@ -11,8 +11,9 @@ observability, and measured load-test results.
 
 Pre-alpha. The TypeScript scaffold, validated config loading,
 uWebSockets.js handshake, public channels, connection liveness, and the signed
-REST publish path, private channels, and rate-limited client events are in
-place; the next protocol milestone is presence channels.
+REST publishing and the single-node protocol surface are in place, including
+public, private, and presence channels plus rate-limited client events. The
+next milestone is the browser demo page.
 
 Implemented:
 
@@ -27,7 +28,7 @@ Implemented:
 | Signed REST publish API | Done |
 | Private channels | Done |
 | Client events and per-connection rate limiting | Done |
-| Presence channels | Planned |
+| Presence channels | Done (single node) |
 | Redis fan-out adapter | Planned |
 | Prometheus metrics and Grafana dashboard | Planned |
 | k6 load-test writeup with measured results | Planned |

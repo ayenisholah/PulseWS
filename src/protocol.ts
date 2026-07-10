@@ -9,6 +9,7 @@ type PusherMessage = {
   event: string;
   data: string;
   channel?: string;
+  user_id?: string;
 };
 
 export type ClientMessage = {
@@ -85,11 +86,14 @@ export function decodeClientMessage(raw: string): ClientMessage {
   };
 }
 
-export function subscriptionSucceededMessage(channel: string): PusherMessage {
+export function subscriptionSucceededMessage(
+  channel: string,
+  data: unknown = {},
+): PusherMessage {
   return {
     event: "pusher_internal:subscription_succeeded",
     channel,
-    data: encodePusherData({}),
+    data: encodePusherData(data),
   };
 }
 
@@ -109,11 +113,13 @@ export function channelEventMessageFromEncodedData(
   channel: string,
   event: string,
   data: string,
+  userId?: string,
 ): PusherMessage {
   return {
     event,
     channel,
     data,
+    ...(userId === undefined ? {} : { user_id: userId }),
   };
 }
 

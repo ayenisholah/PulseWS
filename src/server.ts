@@ -7,6 +7,7 @@ import {
 } from "./adapter/local.js";
 import {
   verifyPrivateChannelAuth,
+  verifyPresenceChannelAuth,
   verifyRestRequest,
 } from "./auth.js";
 import {
@@ -36,6 +37,11 @@ import {
   MAX_INGRESS_BYTES,
   parsePublishRequest,
 } from "./publish.js";
+import {
+  LocalPresenceRegistry,
+  parsePresenceChannelData,
+  type PresenceMember,
+} from "./presence.js";
 import { TokenBucket } from "./ratelimit.js";
 
 const DEFAULT_ACTIVITY_GRACE_SECONDS = 30;
@@ -47,6 +53,7 @@ type SocketData =
       app: AppConfig;
       socketId: string;
       subscriptions: Set<string>;
+      presenceMemberships: Map<string, PresenceMember>;
       clientEventLimiter: TokenBucket;
       lastActivityAt: number;
       closed: boolean;
@@ -85,6 +92,7 @@ export async function startServer(
   const acceptedSockets = new Set<uWS.WebSocket<SocketData>>();
   const acceptedSocketsById = new Map<string, LocalEventSocket>();
   const adapter = new LocalEventAdapter(app, acceptedSocketsById);
+  const presence = new LocalPresenceRegistry();
   const activityTimeoutSeconds =
     timing.activityTimeoutSeconds ?? DEFAULT_ACTIVITY_TIMEOUT_SECONDS;
   const activityGraceSeconds =
@@ -106,6 +114,7 @@ export async function startServer(
               app: configuredApp,
               socketId: createSocketId(),
               subscriptions: new Set<string>(),
+              presenceMemberships: new Map<string, PresenceMember>(),
               clientEventLimiter: new TokenBucket(
                 configuredApp.maxClientEventsPerSecond,
               ),
@@ -172,12 +181,12 @@ export async function startServer(
       }
 
       if (clientMessage.event === "pusher:subscribe") {
-        handleSubscribe(ws, clientMessage.data);
+        handleSubscribe(ws, clientMessage.data, adapter, presence);
         return;
       }
 
       if (clientMessage.event === "pusher:unsubscribe") {
-        handleUnsubscribe(ws, clientMessage.data);
+        handleUnsubscribe(ws, clientMessage.data, adapter, presence);
         return;
       }
 
@@ -193,6 +202,10 @@ export async function startServer(
         if (acceptedSocketsById.get(data.socketId) === ws) {
           acceptedSocketsById.delete(data.socketId);
         }
+        for (const channel of data.presenceMemberships.keys()) {
+          leavePresenceChannel(data, channel, adapter, presence);
+        }
+        data.presenceMemberships.clear();
         data.subscriptions.clear();
       }
     },
@@ -334,7 +347,12 @@ function listen(app: uWS.TemplatedApp, port: number): Promise<us_listen_socket> 
   });
 }
 
-function handleSubscribe(ws: uWS.WebSocket<SocketData>, payload: unknown): void {
+function handleSubscribe(
+  ws: uWS.WebSocket<SocketData>,
+  payload: unknown,
+  adapter: EventAdapter,
+  presence: LocalPresenceRegistry,
+): void {
   const subscription = readSubscriptionFromPayload(payload);
   const validation = validateSubscribableChannelName(subscription?.channel);
 
@@ -361,6 +379,63 @@ function handleSubscribe(ws: uWS.WebSocket<SocketData>, payload: unknown): void 
     return;
   }
 
+  let presenceMember: PresenceMember | undefined;
+  if (validation.type === "presence") {
+    if (
+      !verifyPresenceChannelAuth(
+        data.app,
+        data.socketId,
+        validation.channel,
+        subscription?.channelData,
+        subscription?.auth,
+      )
+    ) {
+      sendError(ws, 4000, "Invalid presence subscription authorization");
+      return;
+    }
+
+    try {
+      presenceMember = parsePresenceChannelData(subscription?.channelData);
+    } catch (error) {
+      sendError(ws, 4000, formatError(error));
+      return;
+    }
+
+    const joined = presence.join(
+      data.app.id,
+      validation.channel,
+      data.socketId,
+      presenceMember,
+    );
+    if (!joined.ok) {
+      sendError(ws, 4000, joined.reason);
+      return;
+    }
+
+    if (joined.memberAdded) {
+      adapter.publish({
+        appId: data.app.id,
+        channel: validation.channel,
+        event: "pusher_internal:member_added",
+        data: encodePusherData({
+          user_id: presenceMember.userId,
+          user_info: presenceMember.userInfo,
+        }),
+      });
+    }
+
+    const topic = topicFor(data.app.id, validation.channel);
+    ws.subscribe(topic);
+    data.subscriptions.add(validation.channel);
+    data.presenceMemberships.set(validation.channel, presenceMember);
+    ws.send(
+      encodePusherMessage(
+        subscriptionSucceededMessage(validation.channel, joined.roster),
+      ),
+    );
+    return;
+  }
+
   const topic = topicFor(data.app.id, validation.channel);
   ws.subscribe(topic);
   data.subscriptions.add(validation.channel);
@@ -369,7 +444,12 @@ function handleSubscribe(ws: uWS.WebSocket<SocketData>, payload: unknown): void 
   );
 }
 
-function handleUnsubscribe(ws: uWS.WebSocket<SocketData>, payload: unknown): void {
+function handleUnsubscribe(
+  ws: uWS.WebSocket<SocketData>,
+  payload: unknown,
+  adapter: EventAdapter,
+  presence: LocalPresenceRegistry,
+): void {
   const channel = readChannelFromPayload(payload);
   const validation = validateSubscribableChannelName(channel);
 
@@ -385,6 +465,10 @@ function handleUnsubscribe(ws: uWS.WebSocket<SocketData>, payload: unknown): voi
 
   ws.unsubscribe(topicFor(data.app.id, validation.channel));
   data.subscriptions.delete(validation.channel);
+  if (validation.type === "presence") {
+    leavePresenceChannel(data, validation.channel, adapter, presence);
+    data.presenceMemberships.delete(validation.channel);
+  }
 }
 
 function handleClientEvent(
@@ -417,18 +501,42 @@ function handleClientEvent(
     return;
   }
 
+  const presenceUserId =
+    channelType === "presence"
+      ? data.presenceMemberships.get(channel)?.userId
+      : undefined;
   adapter.publish({
     appId: data.app.id,
     channel,
     event: message.event,
     data: encodePusherData(message.data),
     excludeSocket: data.socketId,
+    ...(presenceUserId === undefined ? {} : { userId: presenceUserId }),
+  });
+}
+
+function leavePresenceChannel(
+  data: Extract<SocketData, { accepted: true }>,
+  channel: string,
+  adapter: EventAdapter,
+  presence: LocalPresenceRegistry,
+): void {
+  const left = presence.leave(data.app.id, channel, data.socketId);
+  if (!left.memberRemoved || !left.member) {
+    return;
+  }
+
+  adapter.publish({
+    appId: data.app.id,
+    channel,
+    event: "pusher_internal:member_removed",
+    data: encodePusherData({ user_id: left.member.userId }),
   });
 }
 
 function readSubscriptionFromPayload(
   payload: unknown,
-): { channel: unknown; auth?: unknown } | undefined {
+): { channel: unknown; auth?: unknown; channelData?: unknown } | undefined {
   if (typeof payload === "string") {
     try {
       return readSubscriptionFromPayload(JSON.parse(payload));
@@ -441,10 +549,17 @@ function readSubscriptionFromPayload(
     return undefined;
   }
 
-  const subscription = payload as { channel?: unknown; auth?: unknown };
+  const subscription = payload as {
+    channel?: unknown;
+    auth?: unknown;
+    channel_data?: unknown;
+  };
   return {
     channel: subscription.channel,
     ...(subscription.auth === undefined ? {} : { auth: subscription.auth }),
+    ...(subscription.channel_data === undefined
+      ? {}
+      : { channelData: subscription.channel_data }),
   };
 }
 

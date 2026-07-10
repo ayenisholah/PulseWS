@@ -10,6 +10,7 @@ export type EventPublish = {
   event: string;
   data: string;
   excludeSocket?: string;
+  userId?: string;
 };
 
 export interface EventAdapter {
@@ -60,6 +61,7 @@ export class LocalEventAdapter implements EventAdapter {
             event.channel,
             event.event,
             event.data,
+            event.userId,
           ),
         ),
       );

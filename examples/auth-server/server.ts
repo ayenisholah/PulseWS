@@ -6,7 +6,10 @@ import {
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
-import { createPrivateChannelAuth } from "../../src/auth.js";
+import {
+  createPresenceChannelAuth,
+  createPrivateChannelAuth,
+} from "../../src/auth.js";
 import {
   classifyChannelName,
   isValidChannelName,
@@ -38,13 +41,38 @@ export async function startAuthServer(
     const socketId = form.get("socket_id");
     const channel = form.get("channel_name");
 
-    if (
-      !socketId ||
-      !channel ||
-      !isValidChannelName(channel) ||
-      classifyChannelName(channel) !== "private"
-    ) {
-      sendJson(response, 403, { error: "Private channel authorization denied" });
+    if (!socketId || !channel || !isValidChannelName(channel)) {
+      sendJson(response, 403, { error: "Channel authorization denied" });
+      return;
+    }
+
+    const channelType = classifyChannelName(channel);
+    if (channelType === "presence") {
+      const userId = form.get("user_id");
+      const userInfo = parseUserInfo(form.get("user_info"));
+      if (!userId || !userInfo) {
+        sendJson(response, 403, { error: "Presence authorization denied" });
+        return;
+      }
+
+      const channelData = JSON.stringify({
+        user_id: userId,
+        user_info: userInfo,
+      });
+      sendJson(response, 200, {
+        auth: createPresenceChannelAuth(
+          { key: options.appKey, secret: options.appSecret },
+          socketId,
+          channel,
+          channelData,
+        ),
+        channel_data: channelData,
+      });
+      return;
+    }
+
+    if (channelType !== "private") {
+      sendJson(response, 403, { error: "Channel authorization denied" });
       return;
     }
 
@@ -67,6 +95,20 @@ export async function startAuthServer(
     port: address.port,
     close: () => close(server),
   };
+}
+
+function parseUserInfo(raw: string | null): Record<string, unknown> | undefined {
+  if (raw === null) {
+    return {};
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function readBody(request: IncomingMessage): Promise<string> {

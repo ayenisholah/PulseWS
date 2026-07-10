@@ -28,6 +28,23 @@ describe("local event adapter", () => {
     );
   });
 
+  test("includes presence user metadata when supplied", () => {
+    const app = { publish: vi.fn(() => true) };
+    const adapter = new LocalEventAdapter(app, new Map());
+
+    adapter.publish({ ...event, userId: "user-1" });
+
+    expect(app.publish).toHaveBeenCalledWith(
+      "demo-app/public-updates",
+      JSON.stringify({
+        event: "demo.event",
+        channel: "public-updates",
+        data: event.data,
+        user_id: "user-1",
+      }),
+    );
+  });
+
   test("temporarily unsubscribes an excluded subscriber and safely restores it", () => {
     const socket = createSocket([event.channel]);
     const app = {

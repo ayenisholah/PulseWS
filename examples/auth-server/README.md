@@ -1,7 +1,7 @@
 # Private channel auth example
 
 This dependency-free Node.js server exposes the Pusher-compatible
-`POST /pusher/auth` endpoint used by `pusher-js` private channels.
+`POST /pusher/auth` endpoint used by `pusher-js` private and presence channels.
 
 Set credentials that match one application in `pulsews.config.json`, then run:
 
@@ -26,3 +26,7 @@ The example authorizes every syntactically valid `private-` channel. A real
 application must authenticate the caller and check whether that user may join
 the requested channel before returning a signature. Keep the application
 secret on the server.
+
+For `presence-` channels, include `user_id` and optional JSON `user_info` form
+fields. Production applications should derive these fields from their trusted
+session rather than accepting them directly from a browser.

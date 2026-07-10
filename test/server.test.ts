@@ -7,6 +7,7 @@ import {
   startAuthServer,
   type RunningAuthServer,
 } from "../examples/auth-server/server.js";
+import { createPresenceChannelAuth } from "../src/auth.js";
 import type { PulseWsConfig } from "../src/config.js";
 import { MAX_INGRESS_BYTES } from "../src/publish.js";
 import {
@@ -32,8 +33,18 @@ type PusherClient = {
 };
 
 type PusherChannel = {
-  bind: (event: string, callback: (payload: never) => void) => void;
+  bind: (
+    event: string,
+    callback: (payload: never, metadata?: { user_id?: string }) => void,
+  ) => void;
   trigger: (event: string, data: unknown) => boolean;
+  members: {
+    count: number;
+    me: { id: string; info: Record<string, unknown> } | null;
+    get: (id: string) =>
+      | { id: string; info: Record<string, unknown> }
+      | null;
+  };
 };
 
 const testConfig: PulseWsConfig = {
@@ -53,6 +64,7 @@ const servers: PulseWsServer[] = [];
 const authServers: RunningAuthServer[] = [];
 const clients: PusherClient[] = [];
 const rawSockets: WebSocket[] = [];
+const rawSocketIds = new WeakMap<WebSocket, string>();
 
 afterEach(async () => {
   for (const client of clients.splice(0)) {
@@ -378,6 +390,176 @@ describe("client events", () => {
   });
 });
 
+describe("presence channels", () => {
+  test("maintains pusher-js rosters across join, unsubscribe, and disconnect", async () => {
+    const server = await startTestServer();
+    const authServer = await startTestAuthServer();
+    const ada = createAuthorizedClient(server.port, authServer.port, {
+      userId: "user-1",
+      userInfo: { name: "Ada" },
+    });
+    const grace = createAuthorizedClient(server.port, authServer.port, {
+      userId: "user-2",
+      userInfo: { name: "Grace" },
+    });
+
+    await Promise.all([waitForConnection(ada), waitForConnection(grace)]);
+    const adaChannel = ada.subscribe("presence-room");
+    await waitForChannelEvent(adaChannel, "pusher:subscription_succeeded");
+    expect(adaChannel.members.count).toBe(1);
+    expect(adaChannel.members.me).toEqual({
+      id: "user-1",
+      info: { name: "Ada" },
+    });
+
+    const added = waitForChannelEvent(adaChannel, "pusher:member_added");
+    let graceChannel = grace.subscribe("presence-room");
+    await waitForChannelEvent(graceChannel, "pusher:subscription_succeeded");
+    await expect(added).resolves.toEqual({
+      id: "user-2",
+      info: { name: "Grace" },
+    });
+    expect(graceChannel.members.count).toBe(2);
+    expect(graceChannel.members.get("user-1")).toEqual({
+      id: "user-1",
+      info: { name: "Ada" },
+    });
+
+    const removedOnUnsubscribe = waitForChannelEvent(
+      adaChannel,
+      "pusher:member_removed",
+    );
+    grace.unsubscribe("presence-room");
+    await expect(removedOnUnsubscribe).resolves.toEqual({
+      id: "user-2",
+      info: { name: "Grace" },
+    });
+    expect(adaChannel.members.count).toBe(1);
+
+    const readded = waitForChannelEvent(adaChannel, "pusher:member_added");
+    graceChannel = grace.subscribe("presence-room");
+    await waitForChannelEvent(graceChannel, "pusher:subscription_succeeded");
+    await readded;
+    const removedOnDisconnect = waitForChannelEvent(
+      adaChannel,
+      "pusher:member_removed",
+    );
+    grace.disconnect();
+    await expect(removedOnDisconnect).resolves.toMatchObject({ id: "user-2" });
+    expect(adaChannel.members.count).toBe(1);
+  });
+
+  test("adds sender identity metadata to presence client events", async () => {
+    const server = await startTestServer();
+    const authServer = await startTestAuthServer();
+    const sender = createAuthorizedClient(server.port, authServer.port, {
+      userId: "user-1",
+      userInfo: { name: "Ada" },
+    });
+    const peer = createAuthorizedClient(server.port, authServer.port, {
+      userId: "user-2",
+      userInfo: { name: "Grace" },
+    });
+
+    await Promise.all([waitForConnection(sender), waitForConnection(peer)]);
+    const senderChannel = sender.subscribe("presence-room");
+    const peerChannel = peer.subscribe("presence-room");
+    await Promise.all([
+      waitForChannelEvent(senderChannel, "pusher:subscription_succeeded"),
+      waitForChannelEvent(peerChannel, "pusher:subscription_succeeded"),
+    ]);
+    const delivered = waitForChannelEventWithMetadata(
+      peerChannel,
+      "client-status",
+    );
+    const echoed = waitForOptionalChannelEvent(
+      senderChannel,
+      "client-status",
+      150,
+    );
+
+    senderChannel.trigger("client-status", { online: true });
+
+    await expect(delivered).resolves.toEqual({
+      payload: { online: true },
+      metadata: { user_id: "user-1" },
+    });
+    await expect(echoed).resolves.toBeUndefined();
+  });
+
+  test("rejects invalid presence authorization and identity data", async () => {
+    const server = await startTestServer();
+
+    for (const invalid of ["signature", "identity"] as const) {
+      const client = createClient("demo-key", server.port, {
+        channelAuthorization: {
+          customHandler: (
+            params: { socketId: string; channelName: string },
+            callback: (
+              error: Error | null,
+              authorization: { auth: string; channel_data: string } | null,
+            ) => void,
+          ) => {
+            const channelData =
+              invalid === "identity"
+                ? JSON.stringify({ user_id: "" })
+                : JSON.stringify({ user_id: "user-1" });
+            callback(null, {
+              channel_data: channelData,
+              auth:
+                invalid === "signature"
+                  ? `demo-key:${"0".repeat(64)}`
+                  : createPresenceChannelAuth(
+                      { key: "demo-key", secret: "demo-secret" },
+                      params.socketId,
+                      params.channelName,
+                      channelData,
+                    ),
+            });
+          },
+        },
+      });
+
+      await waitForConnection(client);
+      const rejected = waitForConnectionError(client);
+      client.subscribe("presence-room");
+      await expect(rejected).resolves.toMatchObject({ data: { code: 4000 } });
+    }
+  });
+
+  test("removes an idle presence member when the reaper closes it", async () => {
+    const server = await startTestServer({
+      activityTimeoutSeconds: 0.08,
+      activityGraceSeconds: 0.08,
+      reaperIntervalMilliseconds: 10,
+    });
+    const observer = await connectRawSocket(server.port);
+    await subscribeRawPresence(observer, "user-observer");
+    const keepObserverActive = setInterval(() => {
+      observer.send(JSON.stringify({ event: "observer:activity", data: {} }));
+    }, 40);
+
+    try {
+      const idle = await connectRawSocket(server.port);
+      const added = waitForRawEvent(observer, "pusher_internal:member_added");
+      await subscribeRawPresence(idle, "user-idle");
+      await added;
+      const removed = waitForRawEvent(
+        observer,
+        "pusher_internal:member_removed",
+      );
+      const closed = waitForRawClose(idle, 500);
+
+      await expect(closed).resolves.toBeUndefined();
+      await expect(removed).resolves.toMatchObject({
+        event: "pusher_internal:member_removed",
+      });
+    } finally {
+      clearInterval(keepObserverActive);
+    }
+  });
+});
+
 describe("connection liveness", () => {
   test("responds to pusher ping messages with pusher pong", async () => {
     const server = await startTestServer();
@@ -599,6 +781,10 @@ function connectRawSocket(port: number): Promise<WebSocket> {
     socket.addEventListener("message", (message) => {
       const parsed = parseRawMessage(message);
       if (parsed.event === "pusher:connection_established") {
+        const connectionData = JSON.parse(String(parsed.data)) as {
+          socket_id: string;
+        };
+        rawSocketIds.set(socket, connectionData.socket_id);
         clearTimeout(timeout);
         resolve(socket);
       }
@@ -609,6 +795,38 @@ function connectRawSocket(port: number): Promise<WebSocket> {
       reject(new Error("Raw WebSocket connection failed"));
     });
   });
+}
+
+async function subscribeRawPresence(
+  socket: WebSocket,
+  userId: string,
+): Promise<void> {
+  const socketId = rawSocketIds.get(socket);
+  if (!socketId) {
+    throw new Error("Raw socket id is unavailable");
+  }
+  const channel = "presence-room";
+  const channelData = JSON.stringify({ user_id: userId, user_info: {} });
+  const subscribed = waitForRawEvent(
+    socket,
+    "pusher_internal:subscription_succeeded",
+  );
+  socket.send(
+    JSON.stringify({
+      event: "pusher:subscribe",
+      data: {
+        channel,
+        channel_data: channelData,
+        auth: createPresenceChannelAuth(
+          { key: "demo-key", secret: "demo-secret" },
+          socketId,
+          channel,
+          channelData,
+        ),
+      },
+    }),
+  );
+  await subscribed;
 }
 
 function waitForRawEvent(
@@ -686,6 +904,10 @@ function createClient(
 function createAuthorizedClient(
   serverPort: number,
   authServerPort: number,
+  presenceMember?: {
+    userId: string;
+    userInfo?: Record<string, unknown>;
+  },
 ): PusherClient {
   return createClient("demo-key", serverPort, {
     channelAuthorization: {
@@ -699,6 +921,12 @@ function createAuthorizedClient(
         const body = new URLSearchParams({
           socket_id: params.socketId,
           channel_name: params.channelName,
+          ...(presenceMember === undefined
+            ? {}
+            : {
+                user_id: presenceMember.userId,
+                user_info: JSON.stringify(presenceMember.userInfo ?? {}),
+              }),
         });
         void fetch(`http://127.0.0.1:${authServerPort}/pusher/auth`, {
           method: "POST",
@@ -875,6 +1103,22 @@ function waitForChannelEvent(
     channel.bind(event, (payload) => {
       clearTimeout(timeout);
       resolve(payload);
+    });
+  });
+}
+
+function waitForChannelEventWithMetadata(
+  channel: PusherChannel,
+  event: string,
+): Promise<{ payload: unknown; metadata: { user_id?: string } | undefined }> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error(`Timed out waiting for ${event}`));
+    }, 2_000);
+
+    channel.bind(event, (payload, metadata) => {
+      clearTimeout(timeout);
+      resolve({ payload, metadata });
     });
   });
 }
