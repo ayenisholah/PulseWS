@@ -9,9 +9,9 @@ observability, and measured load-test results.
 
 ## Status
 
-Pre-alpha. The TypeScript scaffold, validated config loading, and
-uWebSockets.js handshake are in place; the next protocol milestone is public
-channels.
+Pre-alpha. The TypeScript scaffold, validated config loading,
+uWebSockets.js handshake, and public channel subscribe/unsubscribe path are in
+place; the next protocol milestone is ping/pong liveness.
 
 Implemented:
 
@@ -21,7 +21,8 @@ Implemented:
 | Strict typecheck and Vitest verify loop | Done |
 | Validated JSON config loader | Done |
 | Pusher protocol handshake | Done |
-| Public/private/presence channels | Planned |
+| Public channel subscribe/unsubscribe | Done |
+| Private/presence channels | Planned |
 | Signed REST publish API | Planned |
 | Redis fan-out adapter | Planned |
 | Prometheus metrics and Grafana dashboard | Planned |

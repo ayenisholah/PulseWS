@@ -15,7 +15,13 @@ type PusherClient = {
     socket_id: string;
     bind: (event: string, callback: (payload: never) => void) => void;
   };
+  subscribe: (channel: string) => PusherChannel;
+  unsubscribe: (channel: string) => void;
   disconnect: () => void;
+};
+
+type PusherChannel = {
+  bind: (event: string, callback: (payload: never) => void) => void;
 };
 
 const testConfig: PulseWsConfig = {
@@ -65,6 +71,37 @@ describe("uWS server handshake", () => {
         },
       },
     });
+  });
+});
+
+describe("public channels", () => {
+  test("subscribes, receives published events, and unsubscribes", async () => {
+    const server = await startTestServer();
+    const client = createClient("demo-key", server.port);
+
+    await waitForConnection(client);
+    const channel = client.subscribe("public-updates");
+
+    await waitForChannelEvent(channel, "pusher:subscription_succeeded");
+
+    const delivered = waitForChannelEvent(channel, "demo.event");
+    server.publish("demo-app", "public-updates", "demo.event", { ok: true });
+
+    await expect(delivered).resolves.toEqual({ ok: true });
+
+    client.unsubscribe("public-updates");
+    await wait(50);
+
+    const unexpectedDelivery = waitForOptionalChannelEvent(
+      channel,
+      "demo.event.after-unsubscribe",
+      150,
+    );
+    server.publish("demo-app", "public-updates", "demo.event.after-unsubscribe", {
+      ok: false,
+    });
+
+    await expect(unexpectedDelivery).resolves.toBeUndefined();
   });
 });
 
@@ -127,5 +164,44 @@ function waitForError(
       clearTimeout(timeout);
       reject(new Error("Unexpectedly connected with unknown app key"));
     });
+  });
+}
+
+function waitForChannelEvent(
+  channel: PusherChannel,
+  event: string,
+): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error(`Timed out waiting for ${event}`));
+    }, 2_000);
+
+    channel.bind(event, (payload) => {
+      clearTimeout(timeout);
+      resolve(payload);
+    });
+  });
+}
+
+function waitForOptionalChannelEvent(
+  channel: PusherChannel,
+  event: string,
+  timeoutMs: number,
+): Promise<unknown | undefined> {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      resolve(undefined);
+    }, timeoutMs);
+
+    channel.bind(event, (payload) => {
+      clearTimeout(timeout);
+      resolve(payload);
+    });
+  });
+}
+
+function wait(timeoutMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, timeoutMs);
   });
 }

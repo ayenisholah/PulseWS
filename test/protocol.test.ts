@@ -1,9 +1,12 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  channelEventMessage,
   connectionEstablishedMessage,
   createSocketId,
+  decodeClientMessage,
   errorMessage,
+  subscriptionSucceededMessage,
 } from "../src/protocol.js";
 
 describe("pusher protocol helpers", () => {
@@ -35,5 +38,48 @@ describe("pusher protocol helpers", () => {
       code: 4001,
       message: "App key not found",
     });
+  });
+
+  test("decodes inbound JSON client messages", () => {
+    expect(
+      decodeClientMessage(
+        JSON.stringify({
+          event: "pusher:subscribe",
+          data: { channel: "updates" },
+        }),
+      ),
+    ).toEqual({
+      event: "pusher:subscribe",
+      data: { channel: "updates" },
+    });
+  });
+
+  test("rejects malformed inbound client messages", () => {
+    expect(() => decodeClientMessage("not json")).toThrow("valid JSON");
+    expect(() => decodeClientMessage(JSON.stringify({ data: {} }))).toThrow(
+      "event string",
+    );
+  });
+
+  test("encodes subscription success data as a JSON string", () => {
+    const message = subscriptionSucceededMessage("updates");
+
+    expect(message).toEqual({
+      event: "pusher_internal:subscription_succeeded",
+      channel: "updates",
+      data: expect.any(String),
+    });
+    expect(JSON.parse(message.data)).toEqual({});
+  });
+
+  test("encodes channel event data as a JSON string", () => {
+    const message = channelEventMessage("updates", "demo.event", { ok: true });
+
+    expect(message).toEqual({
+      event: "demo.event",
+      channel: "updates",
+      data: expect.any(String),
+    });
+    expect(JSON.parse(message.data)).toEqual({ ok: true });
   });
 });

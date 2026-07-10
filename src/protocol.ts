@@ -7,6 +7,13 @@ export const APP_NOT_FOUND_MESSAGE = "App key not found";
 type PusherMessage = {
   event: string;
   data: string;
+  channel?: string;
+};
+
+export type ClientMessage = {
+  event: string;
+  data?: unknown;
+  channel?: string;
 };
 
 export function createSocketId(): string {
@@ -37,6 +44,56 @@ export function errorMessage(code: number, message: string): PusherMessage {
       code,
       message,
     }),
+  };
+}
+
+export function decodeClientMessage(raw: string): ClientMessage {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("Message must be valid JSON");
+  }
+
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    !("event" in parsed) ||
+    typeof parsed.event !== "string"
+  ) {
+    throw new Error("Message must include an event string");
+  }
+
+  const message = parsed as {
+    event: string;
+    data?: unknown;
+    channel?: unknown;
+  };
+
+  return {
+    event: message.event,
+    data: message.data,
+    ...(typeof message.channel === "string" ? { channel: message.channel } : {}),
+  };
+}
+
+export function subscriptionSucceededMessage(channel: string): PusherMessage {
+  return {
+    event: "pusher_internal:subscription_succeeded",
+    channel,
+    data: encodePusherData({}),
+  };
+}
+
+export function channelEventMessage(
+  channel: string,
+  event: string,
+  data: unknown,
+): PusherMessage {
+  return {
+    event,
+    channel,
+    data: encodePusherData(data),
   };
 }
 
