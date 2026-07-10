@@ -4,6 +4,7 @@ import PusherServer from "pusher";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type { PulseWsConfig } from "../src/config.js";
+import { MAX_INGRESS_BYTES } from "../src/publish.js";
 import {
   APP_NOT_FOUND_CLOSE_CODE,
   startServer,
@@ -114,6 +115,92 @@ describe("public channels", () => {
 
     await expect(unexpectedDelivery).resolves.toBeUndefined();
   });
+
+  test("delivers an official SDK publish to an unmodified pusher-js client", async () => {
+    const server = await startTestServer();
+    const client = createClient("demo-key", server.port);
+    const sdk = createServerSdk(server.port);
+
+    await waitForConnection(client);
+    const channel = client.subscribe("public-updates");
+    await waitForChannelEvent(channel, "pusher:subscription_succeeded");
+    const delivered = waitForChannelEvent(channel, "sdk.event");
+
+    const response = await sdk.trigger("public-updates", "sdk.event", {
+      nested: { ok: true },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(delivered).resolves.toEqual({ nested: { ok: true } });
+  });
+
+  test("delivers one official SDK publish to multiple channels", async () => {
+    const server = await startTestServer();
+    const client = createClient("demo-key", server.port);
+    const sdk = createServerSdk(server.port);
+
+    await waitForConnection(client);
+    const first = client.subscribe("channel-one");
+    const second = client.subscribe("channel-two");
+    await Promise.all([
+      waitForChannelEvent(first, "pusher:subscription_succeeded"),
+      waitForChannelEvent(second, "pusher:subscription_succeeded"),
+    ]);
+    const deliveries = [
+      waitForChannelEvent(first, "multi.event"),
+      waitForChannelEvent(second, "multi.event"),
+    ];
+
+    const response = await sdk.trigger(
+      ["channel-one", "channel-two"],
+      "multi.event",
+      { ok: true },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(Promise.all(deliveries)).resolves.toEqual([
+      { ok: true },
+      { ok: true },
+    ]);
+  });
+
+  test("excludes only the requested socket from an official SDK publish", async () => {
+    const server = await startTestServer();
+    const excludedClient = createClient("demo-key", server.port);
+    const receivingClient = createClient("demo-key", server.port);
+    const sdk = createServerSdk(server.port);
+
+    const [{ socketId }] = await Promise.all([
+      waitForConnection(excludedClient),
+      waitForConnection(receivingClient),
+    ]);
+    const excludedChannel = excludedClient.subscribe("shared-channel");
+    const receivingChannel = receivingClient.subscribe("shared-channel");
+    await Promise.all([
+      waitForChannelEvent(excludedChannel, "pusher:subscription_succeeded"),
+      waitForChannelEvent(receivingChannel, "pusher:subscription_succeeded"),
+    ]);
+    const excludedDelivery = waitForOptionalChannelEvent(
+      excludedChannel,
+      "excluded.event",
+      250,
+    );
+    const receivedDelivery = waitForChannelEvent(
+      receivingChannel,
+      "excluded.event",
+    );
+
+    const response = await sdk.trigger(
+      "shared-channel",
+      "excluded.event",
+      { ok: true },
+      { socket_id: socketId },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(receivedDelivery).resolves.toEqual({ ok: true });
+    await expect(excludedDelivery).resolves.toBeUndefined();
+  });
 });
 
 describe("connection liveness", () => {
@@ -159,6 +246,24 @@ describe("connection liveness", () => {
 
     expect(socket.readyState).toBe(WebSocket.OPEN);
     await expect(closed).resolves.toBeUndefined();
+  });
+
+  test("accepts a 10 KB frame, closes one byte over, and remains usable", async () => {
+    const server = await startTestServer();
+    const socket = await connectRawSocket(server.port);
+
+    socket.send(createSizedFrame(MAX_INGRESS_BYTES));
+    await wait(50);
+    expect(socket.readyState).toBe(WebSocket.OPEN);
+
+    const closed = waitForRawClose(socket);
+    socket.send(`${createSizedFrame(MAX_INGRESS_BYTES)}x`);
+    await expect(closed).resolves.toBeUndefined();
+
+    const client = createClient("demo-key", server.port);
+    await expect(waitForConnection(client)).resolves.toMatchObject({
+      socketId: expect.stringMatching(/^\d+\.\d+$/),
+    });
   });
 });
 
@@ -235,6 +340,55 @@ describe("signed REST publish authentication", () => {
     );
 
     expect(response.status).toBe(401);
+  });
+
+  test("returns 400 for malformed authenticated publish payloads", async () => {
+    const server = await startTestServer();
+    const sdk = createServerSdk(server.port);
+    const malformedBodies = [
+      JSON.stringify({ name: "", channels: ["valid"], data: "{}" }),
+      JSON.stringify({ name: "event", channels: [], data: "{}" }),
+      JSON.stringify({ name: "event", channels: ["bad channel"], data: "{}" }),
+      JSON.stringify({ name: "event", channels: ["valid"], data: {} }),
+      JSON.stringify({
+        name: "event",
+        channels: ["valid"],
+        data: "{}",
+        socket_id: "invalid",
+      }),
+      "not json",
+    ];
+
+    for (const body of malformedBodies) {
+      const response = await postSdkSignedBody(server.port, sdk, body);
+      expect(response.status).toBe(400);
+    }
+  });
+
+  test("accepts exactly 10 KB, rejects one byte over, and remains usable", async () => {
+    const server = await startTestServer();
+    const sdk = createServerSdk(server.port);
+
+    const exactResponse = await postSdkSignedBody(
+      server.port,
+      sdk,
+      createSizedPublishBody(MAX_INGRESS_BYTES),
+    );
+    expect(exactResponse.status).toBe(200);
+
+    const oversizedResponse = await postSdkSignedBody(
+      server.port,
+      sdk,
+      createSizedPublishBody(MAX_INGRESS_BYTES + 1),
+    );
+    expect(oversizedResponse.status).toBe(413);
+
+    const healthyResponse = await sdk.trigger(
+      "public-updates",
+      "after-oversize.event",
+      { ok: true },
+    );
+    expect(healthyResponse.status).toBe(200);
   });
 });
 
@@ -338,6 +492,60 @@ function createPublishBody(): string {
     channels: ["public-updates"],
     data: JSON.stringify({ ok: true }),
   });
+}
+
+function createSizedPublishBody(size: number): string {
+  const base = JSON.stringify({
+    name: "demo.event",
+    channels: ["public-updates"],
+    data: "{}",
+    padding: "",
+  });
+  const paddingLength = size - Buffer.byteLength(base);
+  if (paddingLength < 0) {
+    throw new Error("Requested publish body is too small");
+  }
+
+  const sized = JSON.stringify({
+    name: "demo.event",
+    channels: ["public-updates"],
+    data: "{}",
+    padding: "x".repeat(paddingLength),
+  });
+  if (Buffer.byteLength(sized) !== size) {
+    throw new Error("Unable to create exact publish body size");
+  }
+  return sized;
+}
+
+function createSizedFrame(size: number): string {
+  const base = JSON.stringify({ event: "ignored", data: "" });
+  const paddingLength = size - Buffer.byteLength(base);
+  if (paddingLength < 0) {
+    throw new Error("Requested WebSocket frame is too small");
+  }
+
+  const sized = JSON.stringify({
+    event: "ignored",
+    data: "x".repeat(paddingLength),
+  });
+  if (Buffer.byteLength(sized) !== size) {
+    throw new Error("Unable to create exact WebSocket frame size");
+  }
+  return sized;
+}
+
+function postSdkSignedBody(
+  port: number,
+  sdk: PusherServer,
+  body: string,
+): Promise<Response> {
+  const signedQuery = sdk.createSignedQueryString({
+    method: "POST",
+    path: "/apps/demo-app/events",
+    body,
+  });
+  return postSignedRequest(port, signedQuery, body);
 }
 
 function postSignedRequest(

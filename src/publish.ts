@@ -13,6 +13,28 @@ export type PublishRequest = {
   socketId?: string;
 };
 
+export class LimitedBodyBuffer {
+  private readonly chunks: Buffer[] = [];
+  private length = 0;
+
+  constructor(private readonly limit = MAX_INGRESS_BYTES) {}
+
+  append(chunk: ArrayBuffer): boolean {
+    if (this.length + chunk.byteLength > this.limit) {
+      return false;
+    }
+
+    const bufferedChunk = Buffer.from(chunk);
+    this.chunks.push(bufferedChunk);
+    this.length += bufferedChunk.length;
+    return true;
+  }
+
+  toBuffer(): Buffer {
+    return Buffer.concat(this.chunks, this.length);
+  }
+}
+
 export function parsePublishRequest(rawBody: Buffer): PublishRequest {
   let parsed: unknown;
   try {

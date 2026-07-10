@@ -20,7 +20,11 @@ import {
   pongMessage,
   subscriptionSucceededMessage,
 } from "./protocol.js";
-import { MAX_INGRESS_BYTES, parsePublishRequest } from "./publish.js";
+import {
+  LimitedBodyBuffer,
+  MAX_INGRESS_BYTES,
+  parsePublishRequest,
+} from "./publish.js";
 
 const DEFAULT_ACTIVITY_GRACE_SECONDS = 30;
 const DEFAULT_REAPER_INTERVAL_MILLISECONDS = 1_000;
@@ -177,8 +181,7 @@ export async function startServer(
     const configuredApp = appsById.get(req.getParameter(0) ?? "");
     const path = req.getUrl();
     const rawQuery = req.getQuery();
-    const chunks: Buffer[] = [];
-    let bodyLength = 0;
+    const bodyBuffer = new LimitedBodyBuffer();
     let aborted = false;
     let completed = false;
 
@@ -191,9 +194,7 @@ export async function startServer(
         return;
       }
 
-      const bodyChunk = Buffer.from(chunk);
-      bodyLength += bodyChunk.length;
-      if (bodyLength > MAX_INGRESS_BYTES) {
+      if (!bodyBuffer.append(chunk)) {
         completed = true;
         res.cork(() => {
           res
@@ -204,13 +205,12 @@ export async function startServer(
         return;
       }
 
-      chunks.push(bodyChunk);
       if (!isLast) {
         return;
       }
 
       completed = true;
-      const rawBody = Buffer.concat(chunks);
+      const rawBody = bodyBuffer.toBuffer();
       const authorized =
         configuredApp !== undefined &&
         verifyRestRequest({
