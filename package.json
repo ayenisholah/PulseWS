@@ -4,9 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "tsc --noEmit",
+    "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "verify": "npm run typecheck && npm run test"
+    "verify": "npm run build && npm run lint && npm run test"
   },
   "dependencies": {
     "pino": "10.3.1",

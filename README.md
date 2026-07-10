@@ -105,8 +105,7 @@ scaling story stays focused.
 | `docs/MILESTONES.md` | Compatibility and release gates |
 | `docs/DECISIONS.md` | Approved decisions and deviations |
 | `docs/PROGRESS.md` | Append-only implementation log |
-| `scripts/verify.*` | Local verification entrypoints |
-| `.githooks/` | Commit hygiene hooks |
+| `scripts/verify.*` | Local build, lint, and test entrypoints |
 
 ## License
 
