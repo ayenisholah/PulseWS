@@ -27,6 +27,8 @@ release.
   and local event fan-out through a delivery adapter seam.
 - HMAC-authenticated private channel subscriptions plus a dependency-free
   Node.js example authorization endpoint.
+- Private-channel client events with sender exclusion and configurable
+  per-connection token-bucket rate limiting.
 
 ### Changed
 

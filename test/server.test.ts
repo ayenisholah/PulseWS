@@ -33,6 +33,7 @@ type PusherClient = {
 
 type PusherChannel = {
   bind: (event: string, callback: (payload: never) => void) => void;
+  trigger: (event: string, data: unknown) => boolean;
 };
 
 const testConfig: PulseWsConfig = {
@@ -213,46 +214,8 @@ describe("public channels", () => {
 describe("private channels", () => {
   test("authorizes an unmodified pusher-js client through the example endpoint", async () => {
     const server = await startTestServer();
-    const authServer = await startAuthServer({
-      appKey: "demo-key",
-      appSecret: "demo-secret",
-      port: 0,
-    });
-    authServers.push(authServer);
-    const client = createClient("demo-key", server.port, {
-      channelAuthorization: {
-        customHandler: (
-          params: { socketId: string; channelName: string },
-          callback: (
-            error: Error | null,
-            authorization: { auth: string } | null,
-          ) => void,
-        ) => {
-          const body = new URLSearchParams({
-            socket_id: params.socketId,
-            channel_name: params.channelName,
-          });
-          void fetch(`http://127.0.0.1:${authServer.port}/pusher/auth`, {
-            method: "POST",
-            body,
-          })
-            .then(async (response) => {
-              if (!response.ok) {
-                throw new Error(`Authorization failed with ${response.status}`);
-              }
-              return (await response.json()) as { auth: string };
-            })
-            .then(
-              (authorization) => callback(null, authorization),
-              (error: unknown) =>
-                callback(
-                  error instanceof Error ? error : new Error(String(error)),
-                  null,
-                ),
-            );
-        },
-      },
-    });
+    const authServer = await startTestAuthServer();
+    const client = createAuthorizedClient(server.port, authServer.port);
 
     await waitForConnection(client);
     const channel = client.subscribe("private-room");
@@ -289,6 +252,129 @@ describe("private channels", () => {
       });
       await expect(unexpectedDelivery).resolves.toBeUndefined();
     }
+  });
+});
+
+describe("client events", () => {
+  test("delivers private client events to peers but not the sender", async () => {
+    const server = await startTestServer();
+    const authServer = await startTestAuthServer();
+    const sender = createAuthorizedClient(server.port, authServer.port);
+    const peer = createAuthorizedClient(server.port, authServer.port);
+
+    await Promise.all([waitForConnection(sender), waitForConnection(peer)]);
+    const senderChannel = sender.subscribe("private-room");
+    const peerChannel = peer.subscribe("private-room");
+    await Promise.all([
+      waitForChannelEvent(senderChannel, "pusher:subscription_succeeded"),
+      waitForChannelEvent(peerChannel, "pusher:subscription_succeeded"),
+    ]);
+    const peerDelivery = waitForChannelEvent(peerChannel, "client-message");
+    const senderDelivery = waitForOptionalChannelEvent(
+      senderChannel,
+      "client-message",
+      150,
+    );
+
+    expect(senderChannel.trigger("client-message", { text: "hello" })).toBe(
+      true,
+    );
+
+    await expect(peerDelivery).resolves.toEqual({ text: "hello" });
+    await expect(senderDelivery).resolves.toBeUndefined();
+  });
+
+  test("rejects client events on public and unsubscribed channels", async () => {
+    const server = await startTestServer();
+    const publicPeer = createClient("demo-key", server.port);
+    await waitForConnection(publicPeer);
+    const publicChannel = publicPeer.subscribe("public-room");
+    await waitForChannelEvent(publicChannel, "pusher:subscription_succeeded");
+
+    const publicSender = await connectRawSocket(server.port);
+    const publicSubscribed = waitForRawEvent(
+      publicSender,
+      "pusher_internal:subscription_succeeded",
+    );
+    publicSender.send(
+      JSON.stringify({
+        event: "pusher:subscribe",
+        data: { channel: "public-room" },
+      }),
+    );
+    await publicSubscribed;
+
+    const publicError = waitForRawEvent(publicSender, "pusher:error");
+    const publicDelivery = waitForOptionalChannelEvent(
+      publicChannel,
+      "client-public",
+      150,
+    );
+    publicSender.send(
+      JSON.stringify({
+        event: "client-public",
+        channel: "public-room",
+        data: { rejected: true },
+      }),
+    );
+    await expect(publicError).resolves.toMatchObject({ event: "pusher:error" });
+    await expect(publicDelivery).resolves.toBeUndefined();
+
+    const unsubscribedSender = await connectRawSocket(server.port);
+    const unsubscribedError = waitForRawEvent(unsubscribedSender, "pusher:error");
+    unsubscribedSender.send(
+      JSON.stringify({
+        event: "client-private",
+        channel: "private-room",
+        data: { rejected: true },
+      }),
+    );
+    await expect(unsubscribedError).resolves.toMatchObject({
+      event: "pusher:error",
+    });
+  });
+
+  test("rate limits floods with 4301 and recovers after refill", async () => {
+    const lowRateConfig: PulseWsConfig = {
+      ...testConfig,
+      apps: testConfig.apps.map((app) => ({
+        ...app,
+        maxClientEventsPerSecond: 2,
+      })),
+    };
+    const server = await startServer(lowRateConfig);
+    servers.push(server);
+    const authServer = await startTestAuthServer();
+    const sender = createAuthorizedClient(server.port, authServer.port);
+    const peer = createAuthorizedClient(server.port, authServer.port);
+
+    await Promise.all([waitForConnection(sender), waitForConnection(peer)]);
+    const senderChannel = sender.subscribe("private-room");
+    const peerChannel = peer.subscribe("private-room");
+    await Promise.all([
+      waitForChannelEvent(senderChannel, "pusher:subscription_succeeded"),
+      waitForChannelEvent(peerChannel, "pusher:subscription_succeeded"),
+    ]);
+
+    const first = waitForChannelEvent(peerChannel, "client-first");
+    const second = waitForChannelEvent(peerChannel, "client-second");
+    const limited = waitForConnectionError(sender);
+    senderChannel.trigger("client-first", { sequence: 1 });
+    senderChannel.trigger("client-second", { sequence: 2 });
+    senderChannel.trigger("client-third", { sequence: 3 });
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { sequence: 1 },
+      { sequence: 2 },
+    ]);
+    await expect(limited).resolves.toMatchObject({
+      data: { code: 4301 },
+    });
+
+    await wait(600);
+    const recovered = waitForChannelEvent(peerChannel, "client-recovered");
+    senderChannel.trigger("client-recovered", { healthy: true });
+    await expect(recovered).resolves.toEqual({ healthy: true });
   });
 });
 
@@ -489,6 +575,16 @@ async function startTestServer(
   return server;
 }
 
+async function startTestAuthServer(): Promise<RunningAuthServer> {
+  const server = await startAuthServer({
+    appKey: "demo-key",
+    appSecret: "demo-secret",
+    port: 0,
+  });
+  authServers.push(server);
+  return server;
+}
+
 function connectRawSocket(port: number): Promise<WebSocket> {
   const socket = new WebSocket(
     `ws://127.0.0.1:${port}/app/demo-key?protocol=7&client=js&version=8.5.0`,
@@ -585,6 +681,46 @@ function createClient(
   });
   clients.push(client);
   return client;
+}
+
+function createAuthorizedClient(
+  serverPort: number,
+  authServerPort: number,
+): PusherClient {
+  return createClient("demo-key", serverPort, {
+    channelAuthorization: {
+      customHandler: (
+        params: { socketId: string; channelName: string },
+        callback: (
+          error: Error | null,
+          authorization: { auth: string } | null,
+        ) => void,
+      ) => {
+        const body = new URLSearchParams({
+          socket_id: params.socketId,
+          channel_name: params.channelName,
+        });
+        void fetch(`http://127.0.0.1:${authServerPort}/pusher/auth`, {
+          method: "POST",
+          body,
+        })
+          .then(async (response) => {
+            if (!response.ok) {
+              throw new Error(`Authorization failed with ${response.status}`);
+            }
+            return (await response.json()) as { auth: string };
+          })
+          .then(
+            (authorization) => callback(null, authorization),
+            (error: unknown) =>
+              callback(
+                error instanceof Error ? error : new Error(String(error)),
+                null,
+              ),
+          );
+      },
+    },
+  });
 }
 
 function createServerSdk(port: number): PusherServer {
@@ -710,6 +846,19 @@ function waitForError(
     client.connection.bind("connected", () => {
       clearTimeout(timeout);
       reject(new Error("Unexpectedly connected with unknown app key"));
+    });
+  });
+}
+
+function waitForConnectionError(client: PusherClient): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error("Timed out waiting for pusher-js connection error"));
+    }, 2_000);
+
+    client.connection.bind("error", (error: unknown) => {
+      clearTimeout(timeout);
+      resolve(error);
     });
   });
 }

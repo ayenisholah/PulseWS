@@ -3,6 +3,7 @@ import { randomInt } from "node:crypto";
 export const DEFAULT_ACTIVITY_TIMEOUT_SECONDS = 120;
 export const APP_NOT_FOUND_CLOSE_CODE = 4001;
 export const APP_NOT_FOUND_MESSAGE = "App key not found";
+export const CLIENT_EVENT_RATE_LIMIT_CODE = 4301;
 
 type PusherMessage = {
   event: string;

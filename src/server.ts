@@ -1,6 +1,7 @@
 import uWS, { type us_listen_socket } from "uWebSockets.js";
 
 import {
+  type EventAdapter,
   LocalEventAdapter,
   type LocalEventSocket,
 } from "./adapter/local.js";
@@ -8,12 +9,19 @@ import {
   verifyPrivateChannelAuth,
   verifyRestRequest,
 } from "./auth.js";
-import { topicFor, validateSubscribableChannelName } from "./channels.js";
+import {
+  classifyChannelName,
+  isValidChannelName,
+  topicFor,
+  validateSubscribableChannelName,
+} from "./channels.js";
 import type { AppConfig, PulseWsConfig } from "./config.js";
 import {
   APP_NOT_FOUND_CLOSE_CODE,
   APP_NOT_FOUND_MESSAGE,
+  CLIENT_EVENT_RATE_LIMIT_CODE,
   DEFAULT_ACTIVITY_TIMEOUT_SECONDS,
+  type ClientMessage,
   connectionEstablishedMessage,
   createSocketId,
   decodeClientMessage,
@@ -28,6 +36,7 @@ import {
   MAX_INGRESS_BYTES,
   parsePublishRequest,
 } from "./publish.js";
+import { TokenBucket } from "./ratelimit.js";
 
 const DEFAULT_ACTIVITY_GRACE_SECONDS = 30;
 const DEFAULT_REAPER_INTERVAL_MILLISECONDS = 1_000;
@@ -38,6 +47,7 @@ type SocketData =
       app: AppConfig;
       socketId: string;
       subscriptions: Set<string>;
+      clientEventLimiter: TokenBucket;
       lastActivityAt: number;
       closed: boolean;
     }
@@ -96,6 +106,9 @@ export async function startServer(
               app: configuredApp,
               socketId: createSocketId(),
               subscriptions: new Set<string>(),
+              clientEventLimiter: new TokenBucket(
+                configuredApp.maxClientEventsPerSecond,
+              ),
               lastActivityAt: Date.now(),
               closed: false,
             }
@@ -165,6 +178,11 @@ export async function startServer(
 
       if (clientMessage.event === "pusher:unsubscribe") {
         handleUnsubscribe(ws, clientMessage.data);
+        return;
+      }
+
+      if (clientMessage.event.startsWith("client-")) {
+        handleClientEvent(ws, clientMessage, adapter);
       }
     },
     close: (ws) => {
@@ -367,6 +385,45 @@ function handleUnsubscribe(ws: uWS.WebSocket<SocketData>, payload: unknown): voi
 
   ws.unsubscribe(topicFor(data.app.id, validation.channel));
   data.subscriptions.delete(validation.channel);
+}
+
+function handleClientEvent(
+  ws: uWS.WebSocket<SocketData>,
+  message: ClientMessage,
+  adapter: EventAdapter,
+): void {
+  const data = ws.getUserData();
+  if (!data.accepted) {
+    return;
+  }
+
+  const channel = message.channel;
+  const channelType = channel ? classifyChannelName(channel) : undefined;
+  if (
+    !isValidChannelName(channel) ||
+    (channelType !== "private" && channelType !== "presence") ||
+    !data.subscriptions.has(channel)
+  ) {
+    sendError(
+      ws,
+      4000,
+      "Client events require a subscribed private or presence channel",
+    );
+    return;
+  }
+
+  if (!data.clientEventLimiter.tryConsume()) {
+    sendError(ws, CLIENT_EVENT_RATE_LIMIT_CODE, "Client event rate limit exceeded");
+    return;
+  }
+
+  adapter.publish({
+    appId: data.app.id,
+    channel,
+    event: message.event,
+    data: encodePusherData(message.data),
+    excludeSocket: data.socketId,
+  });
 }
 
 function readSubscriptionFromPayload(
