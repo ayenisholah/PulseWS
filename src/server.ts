@@ -5,14 +5,19 @@ import type { AppConfig, PulseWsConfig } from "./config.js";
 import {
   APP_NOT_FOUND_CLOSE_CODE,
   APP_NOT_FOUND_MESSAGE,
+  DEFAULT_ACTIVITY_TIMEOUT_SECONDS,
   channelEventMessage,
   connectionEstablishedMessage,
   createSocketId,
   decodeClientMessage,
   encodePusherMessage,
   errorMessage,
+  pongMessage,
   subscriptionSucceededMessage,
 } from "./protocol.js";
+
+const DEFAULT_ACTIVITY_GRACE_SECONDS = 30;
+const DEFAULT_REAPER_INTERVAL_MILLISECONDS = 1_000;
 
 type SocketData =
   | {
@@ -20,6 +25,7 @@ type SocketData =
       app: AppConfig;
       socketId: string;
       subscriptions: Set<string>;
+      lastActivityAt: number;
       closed: boolean;
     }
   | {
@@ -38,9 +44,26 @@ export type PulseWsServer = {
   close: () => void;
 };
 
-export async function startServer(config: PulseWsConfig): Promise<PulseWsServer> {
+export type ServerTimingOptions = {
+  activityTimeoutSeconds?: number;
+  activityGraceSeconds?: number;
+  reaperIntervalMilliseconds?: number;
+};
+
+export async function startServer(
+  config: PulseWsConfig,
+  timing: ServerTimingOptions = {},
+): Promise<PulseWsServer> {
   const appsByKey = new Map(config.apps.map((app) => [app.key, app]));
   const app = uWS.App();
+  const acceptedSockets = new Set<uWS.WebSocket<SocketData>>();
+  const activityTimeoutSeconds =
+    timing.activityTimeoutSeconds ?? DEFAULT_ACTIVITY_TIMEOUT_SECONDS;
+  const activityGraceSeconds =
+    timing.activityGraceSeconds ?? DEFAULT_ACTIVITY_GRACE_SECONDS;
+  const reaperIntervalMilliseconds =
+    timing.reaperIntervalMilliseconds ??
+    DEFAULT_REAPER_INTERVAL_MILLISECONDS;
 
   app.ws<SocketData>("/app/:key", {
     upgrade: (res, req, context) => {
@@ -54,6 +77,7 @@ export async function startServer(config: PulseWsConfig): Promise<PulseWsServer>
               app: configuredApp,
               socketId: createSocketId(),
               subscriptions: new Set<string>(),
+              lastActivityAt: Date.now(),
               closed: false,
             }
           : {
@@ -83,19 +107,31 @@ export async function startServer(config: PulseWsConfig): Promise<PulseWsServer>
         return;
       }
 
-      ws.send(encodePusherMessage(connectionEstablishedMessage(data.socketId)));
+      data.lastActivityAt = Date.now();
+      acceptedSockets.add(ws);
+      ws.send(
+        encodePusherMessage(
+          connectionEstablishedMessage(data.socketId, activityTimeoutSeconds),
+        ),
+      );
     },
     message: (ws, message) => {
       const data = ws.getUserData();
       if (!data.accepted) {
         return;
       }
+      data.lastActivityAt = Date.now();
 
       let clientMessage;
       try {
         clientMessage = decodeClientMessage(Buffer.from(message).toString("utf8"));
       } catch (error) {
         sendError(ws, 4000, formatError(error));
+        return;
+      }
+
+      if (clientMessage.event === "pusher:ping") {
+        ws.send(encodePusherMessage(pongMessage()));
         return;
       }
 
@@ -112,6 +148,7 @@ export async function startServer(config: PulseWsConfig): Promise<PulseWsServer>
       const data = ws.getUserData();
       data.closed = true;
       if (data.accepted) {
+        acceptedSockets.delete(ws);
         data.subscriptions.clear();
       }
     },
@@ -119,6 +156,22 @@ export async function startServer(config: PulseWsConfig): Promise<PulseWsServer>
 
   const listenSocket = await listen(app, config.port);
   const boundPort = uWS.us_socket_local_port(listenSocket);
+  const staleAfterMilliseconds =
+    (activityTimeoutSeconds + activityGraceSeconds) * 1_000;
+  const reaper = setInterval(() => {
+    const now = Date.now();
+    for (const ws of acceptedSockets) {
+      const data = ws.getUserData();
+      if (
+        data.accepted &&
+        !data.closed &&
+        now - data.lastActivityAt > staleAfterMilliseconds
+      ) {
+        ws.close();
+      }
+    }
+  }, reaperIntervalMilliseconds);
+  reaper.unref();
 
   return {
     port: boundPort,
@@ -128,6 +181,7 @@ export async function startServer(config: PulseWsConfig): Promise<PulseWsServer>
         encodePusherMessage(channelEventMessage(channel, event, data)),
       ),
     close: () => {
+      clearInterval(reaper);
       uWS.us_listen_socket_close(listenSocket);
     },
   };

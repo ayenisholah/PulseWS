@@ -6,6 +6,7 @@ import {
   createSocketId,
   decodeClientMessage,
   errorMessage,
+  pongMessage,
   subscriptionSucceededMessage,
 } from "../src/protocol.js";
 
@@ -37,6 +38,13 @@ describe("pusher protocol helpers", () => {
     expect(JSON.parse(message.data)).toEqual({
       code: 4001,
       message: "App key not found",
+    });
+  });
+
+  test("encodes pong data as a JSON string", () => {
+    expect(pongMessage()).toEqual({
+      event: "pusher:pong",
+      data: "{}",
     });
   });
 

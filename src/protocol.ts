@@ -47,6 +47,13 @@ export function errorMessage(code: number, message: string): PusherMessage {
   };
 }
 
+export function pongMessage(): PusherMessage {
+  return {
+    event: "pusher:pong",
+    data: encodePusherData({}),
+  };
+}
+
 export function decodeClientMessage(raw: string): ClientMessage {
   let parsed: unknown;
   try {
