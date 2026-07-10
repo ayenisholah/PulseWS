@@ -293,7 +293,7 @@ Repo ships `deploy/grafana/dashboard.json`: connections panel, msg/s panel, p50/
 | Scaling bus | Redis pub/sub | NATS, Kafka, uWS-only | At-most-once fan-out is exactly Pusher's own semantics; ubiquitous, one Compose service; matches the job-post keyword |
 | Presence store | Redis hashes + node-heartbeat sweeper | Redis-only local, CRDTs, gossip | Simplest thing that survives a node crash, with the failure mode documented |
 | Config | zod-validated file | Postgres, env-only | N3 says no DB; zod gives boot-time failure with readable errors |
-| Language/runtime | TypeScript on Node 20+ | Rust, Go | Matches the target client/server SDK ecosystem and keeps protocol tests close to the official Node SDKs |
+| Language/runtime | TypeScript on Node 22+ | Rust, Go | Matches the target client/server SDK ecosystem and keeps protocol tests close to the official Node SDKs |
 | Load testing | k6 | artillery, custom | First-class WS support, Trend metrics for latency, single binary in CI |
 | Demo cluster | Docker Compose: 2 nodes + Redis + nginx + Prometheus + Grafana | k8s | `docker compose up` is the strongest possible quickstart; k8s adds nothing to the story |
 | Metrics | prom-client + Grafana | StatsD, custom | Prometheus is the industry default and Grafana gives operators a live view during load tests |
