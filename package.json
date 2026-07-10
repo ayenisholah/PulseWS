@@ -1,0 +1,23 @@
+{
+  "name": "pulsews",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "verify": "npm run typecheck && npm run test"
+  },
+  "dependencies": {
+    "pino": "10.3.1",
+    "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.68.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "pusher": "5.3.4",
+    "pusher-js": "8.5.0",
+    "tsx": "4.23.0",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}
