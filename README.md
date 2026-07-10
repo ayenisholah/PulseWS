@@ -11,8 +11,8 @@ observability, and measured load-test results.
 
 Pre-alpha. The TypeScript scaffold, validated config loading,
 uWebSockets.js handshake, public channels, connection liveness, and the signed
-REST publish path are in place; the next protocol milestone is private and
-presence channels.
+REST publish path and private channels are in place; the next protocol
+milestones are client events and presence channels.
 
 Implemented:
 
@@ -25,7 +25,8 @@ Implemented:
 | Public channel subscribe/unsubscribe | Done |
 | Ping/pong liveness and connection reaping | Done |
 | Signed REST publish API | Done |
-| Private/presence channels | Planned |
+| Private channels | Done |
+| Presence channels | Planned |
 | Redis fan-out adapter | Planned |
 | Prometheus metrics and Grafana dashboard | Planned |
 | k6 load-test writeup with measured results | Planned |

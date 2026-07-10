@@ -4,6 +4,7 @@ import {
   classifyChannelName,
   topicFor,
   validatePublicChannelName,
+  validateSubscribableChannelName,
 } from "../src/channels.js";
 
 describe("channel helpers", () => {
@@ -37,6 +38,24 @@ describe("channel helpers", () => {
       type: "presence",
     });
     expect(validatePublicChannelName("private-encrypted-room")).toMatchObject({
+      ok: false,
+      type: "encrypted",
+    });
+  });
+
+  test("accepts private subscriptions while keeping presence and encrypted unsupported", () => {
+    expect(validateSubscribableChannelName("private-room")).toEqual({
+      ok: true,
+      type: "private",
+      channel: "private-room",
+    });
+    expect(validateSubscribableChannelName("presence-room")).toMatchObject({
+      ok: false,
+      type: "presence",
+    });
+    expect(
+      validateSubscribableChannelName("private-encrypted-room"),
+    ).toMatchObject({
       ok: false,
       type: "encrypted",
     });

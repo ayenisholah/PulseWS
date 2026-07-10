@@ -224,7 +224,7 @@ Note the Pusher quirk: **`data` is a JSON-encoded *string*, not an object** — 
 - Private: `signature = HMAC-SHA256(secret, socket_id + ":" + channel)`
 - Presence: `signature = HMAC-SHA256(secret, socket_id + ":" + channel + ":" + channel_data)`
 - The `auth` field is `"<app_key>:<hex signature>"`. Verify with `crypto.timingSafeEqual`.
-- The repo ships a 20-line Express example auth endpoint so demo users don't have to write one.
+- The repo ships a dependency-free Node.js example auth endpoint so demo users don't have to write one.
 
 **REST publish auth** (Pusher HTTP API signing):
 
@@ -469,7 +469,7 @@ pulsews/
 │   ├── ratelimit.ts        # token buckets
 │   └── metrics.ts          # prom-client registry
 ├── public/                 # demo page (vanilla JS + pusher-js CDN)
-├── examples/auth-server/   # 20-line Express subscription-auth endpoint
+├── examples/auth-server/   # Node.js subscription-auth endpoint
 ├── test/                   # vitest: unit, protocol, cluster
 ├── loadtest/               # k6 scripts + docs/loadtest.md template
 ├── deploy/                 # docker-compose.yml, nginx.conf, prometheus.yml,

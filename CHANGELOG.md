@@ -25,6 +25,8 @@ release.
   query signing, constant-time HMAC verification, and replay protection.
 - REST publish endpoint with request validation, ingress body-size limits,
   and local event fan-out through a delivery adapter seam.
+- HMAC-authenticated private channel subscriptions plus a dependency-free
+  Node.js example authorization endpoint.
 
 ### Changed
 

@@ -1,7 +1,11 @@
 import Pusher from "pusher";
 import { describe, expect, test, vi } from "vitest";
 
-import { verifyRestRequest } from "../src/auth.js";
+import {
+  createPrivateChannelAuth,
+  verifyPrivateChannelAuth,
+  verifyRestRequest,
+} from "../src/auth.js";
 
 const app = {
   key: "demo-key",
@@ -19,6 +23,38 @@ const sdk = new Pusher({
   secret: app.secret,
   host: "127.0.0.1",
   useTLS: false,
+});
+
+describe("private channel authentication", () => {
+  test("matches the official SDK authorization fixture", () => {
+    const socketId = "1234.5678";
+    const channel = "private-room";
+    const fixture = sdk.authorizeChannel(socketId, channel);
+
+    expect(createPrivateChannelAuth(app, socketId, channel)).toBe(fixture.auth);
+    expect(
+      verifyPrivateChannelAuth(app, socketId, channel, fixture.auth),
+    ).toBe(true);
+  });
+
+  test("rejects missing, malformed, wrong-key, and tampered authorization", () => {
+    const valid = createPrivateChannelAuth(app, "1234.5678", "private-room");
+    const cases: unknown[] = [
+      undefined,
+      null,
+      "",
+      "demo-key:not-hex",
+      `demo-key:${"0".repeat(62)}`,
+      valid.replace("demo-key:", "wrong-key:"),
+      `${valid.slice(0, -1)}${valid.endsWith("0") ? "1" : "0"}`,
+    ];
+
+    for (const auth of cases) {
+      expect(
+        verifyPrivateChannelAuth(app, "1234.5678", "private-room", auth),
+      ).toBe(false);
+    }
+  });
 });
 
 describe("REST request authentication", () => {

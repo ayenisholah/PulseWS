@@ -7,7 +7,7 @@ const CHANNEL_NAME_PATTERN = /^[A-Za-z0-9_\-=@,.;]+$/;
 export type ChannelValidationResult =
   | {
       ok: true;
-      type: "public";
+      type: "public" | "private";
       channel: string;
     }
   | {
@@ -44,6 +44,32 @@ export function validatePublicChannelName(
 
   const type = classifyChannelName(channel);
   if (type !== "public") {
+    return {
+      ok: false,
+      type,
+      reason: `${type} channels are not supported yet`,
+    };
+  }
+
+  return {
+    ok: true,
+    type,
+    channel,
+  };
+}
+
+export function validateSubscribableChannelName(
+  channel: unknown,
+): ChannelValidationResult {
+  if (!isValidChannelName(channel)) {
+    return {
+      ok: false,
+      reason: "Channel name is invalid",
+    };
+  }
+
+  const type = classifyChannelName(channel);
+  if (type === "presence" || type === "encrypted") {
     return {
       ok: false,
       type,

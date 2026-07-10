@@ -42,3 +42,15 @@ Statuses: Proposed → Approved / Rejected; later possibly Superseded.
   22 and run CI on Node 22.
 - Consequences: Node 20 is no longer supported; Node 22 is the oldest tested
   runtime while compatible newer releases remain usable.
+
+## D-004: Use Node HTTP for the authentication example
+
+- Date: 2026-07-10 · Status: Approved · Decider: Shola Ayeni
+- Context: the private-channel milestone calls for a small authentication
+  endpoint, while adding Express solely for the example would expand the
+  dependency surface without changing the protocol demonstration.
+- Decision: build the example with the Node.js HTTP server and existing
+  PulseWS signing helpers.
+- Consequences: the example has no additional dependencies and remains
+  framework-neutral, but production users must adapt its authorization policy
+  to their own web framework and identity system.

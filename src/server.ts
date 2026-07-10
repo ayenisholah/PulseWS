@@ -4,8 +4,11 @@ import {
   LocalEventAdapter,
   type LocalEventSocket,
 } from "./adapter/local.js";
-import { verifyRestRequest } from "./auth.js";
-import { topicFor, validatePublicChannelName } from "./channels.js";
+import {
+  verifyPrivateChannelAuth,
+  verifyRestRequest,
+} from "./auth.js";
+import { topicFor, validateSubscribableChannelName } from "./channels.js";
 import type { AppConfig, PulseWsConfig } from "./config.js";
 import {
   APP_NOT_FOUND_CLOSE_CODE,
@@ -314,8 +317,8 @@ function listen(app: uWS.TemplatedApp, port: number): Promise<us_listen_socket> 
 }
 
 function handleSubscribe(ws: uWS.WebSocket<SocketData>, payload: unknown): void {
-  const channel = readChannelFromPayload(payload);
-  const validation = validatePublicChannelName(channel);
+  const subscription = readSubscriptionFromPayload(payload);
+  const validation = validateSubscribableChannelName(subscription?.channel);
 
   if (!validation.ok) {
     sendError(ws, 4000, validation.reason);
@@ -324,6 +327,19 @@ function handleSubscribe(ws: uWS.WebSocket<SocketData>, payload: unknown): void 
 
   const data = ws.getUserData();
   if (!data.accepted) {
+    return;
+  }
+
+  if (
+    validation.type === "private" &&
+    !verifyPrivateChannelAuth(
+      data.app,
+      data.socketId,
+      validation.channel,
+      subscription?.auth,
+    )
+  ) {
+    sendError(ws, 4000, "Invalid subscription authorization");
     return;
   }
 
@@ -337,7 +353,7 @@ function handleSubscribe(ws: uWS.WebSocket<SocketData>, payload: unknown): void 
 
 function handleUnsubscribe(ws: uWS.WebSocket<SocketData>, payload: unknown): void {
   const channel = readChannelFromPayload(payload);
-  const validation = validatePublicChannelName(channel);
+  const validation = validateSubscribableChannelName(channel);
 
   if (!validation.ok) {
     sendError(ws, 4000, validation.reason);
@@ -353,10 +369,12 @@ function handleUnsubscribe(ws: uWS.WebSocket<SocketData>, payload: unknown): voi
   data.subscriptions.delete(validation.channel);
 }
 
-function readChannelFromPayload(payload: unknown): unknown {
+function readSubscriptionFromPayload(
+  payload: unknown,
+): { channel: unknown; auth?: unknown } | undefined {
   if (typeof payload === "string") {
     try {
-      return readChannelFromPayload(JSON.parse(payload));
+      return readSubscriptionFromPayload(JSON.parse(payload));
     } catch {
       return undefined;
     }
@@ -366,7 +384,15 @@ function readChannelFromPayload(payload: unknown): unknown {
     return undefined;
   }
 
-  return (payload as { channel?: unknown }).channel;
+  const subscription = payload as { channel?: unknown; auth?: unknown };
+  return {
+    channel: subscription.channel,
+    ...(subscription.auth === undefined ? {} : { auth: subscription.auth }),
+  };
+}
+
+function readChannelFromPayload(payload: unknown): unknown {
+  return readSubscriptionFromPayload(payload)?.channel;
 }
 
 function sendError(

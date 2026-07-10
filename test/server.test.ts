@@ -3,6 +3,10 @@ import { createRequire } from "node:module";
 import PusherServer from "pusher";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
+import {
+  startAuthServer,
+  type RunningAuthServer,
+} from "../examples/auth-server/server.js";
 import type { PulseWsConfig } from "../src/config.js";
 import { MAX_INGRESS_BYTES } from "../src/publish.js";
 import {
@@ -45,10 +49,11 @@ const testConfig: PulseWsConfig = {
 };
 
 const servers: PulseWsServer[] = [];
+const authServers: RunningAuthServer[] = [];
 const clients: PusherClient[] = [];
 const rawSockets: WebSocket[] = [];
 
-afterEach(() => {
+afterEach(async () => {
   for (const client of clients.splice(0)) {
     client.disconnect();
   }
@@ -60,6 +65,8 @@ afterEach(() => {
   for (const server of servers.splice(0)) {
     server.close();
   }
+
+  await Promise.all(authServers.splice(0).map((server) => server.close()));
 });
 
 describe("uWS server handshake", () => {
@@ -200,6 +207,88 @@ describe("public channels", () => {
     expect(response.status).toBe(200);
     await expect(receivedDelivery).resolves.toEqual({ ok: true });
     await expect(excludedDelivery).resolves.toBeUndefined();
+  });
+});
+
+describe("private channels", () => {
+  test("authorizes an unmodified pusher-js client through the example endpoint", async () => {
+    const server = await startTestServer();
+    const authServer = await startAuthServer({
+      appKey: "demo-key",
+      appSecret: "demo-secret",
+      port: 0,
+    });
+    authServers.push(authServer);
+    const client = createClient("demo-key", server.port, {
+      channelAuthorization: {
+        customHandler: (
+          params: { socketId: string; channelName: string },
+          callback: (
+            error: Error | null,
+            authorization: { auth: string } | null,
+          ) => void,
+        ) => {
+          const body = new URLSearchParams({
+            socket_id: params.socketId,
+            channel_name: params.channelName,
+          });
+          void fetch(`http://127.0.0.1:${authServer.port}/pusher/auth`, {
+            method: "POST",
+            body,
+          })
+            .then(async (response) => {
+              if (!response.ok) {
+                throw new Error(`Authorization failed with ${response.status}`);
+              }
+              return (await response.json()) as { auth: string };
+            })
+            .then(
+              (authorization) => callback(null, authorization),
+              (error: unknown) =>
+                callback(
+                  error instanceof Error ? error : new Error(String(error)),
+                  null,
+                ),
+            );
+        },
+      },
+    });
+
+    await waitForConnection(client);
+    const channel = client.subscribe("private-room");
+
+    await expect(
+      waitForChannelEvent(channel, "pusher:subscription_succeeded"),
+    ).resolves.toEqual({});
+    const delivered = waitForChannelEvent(channel, "private.event");
+    server.publish("demo-app", "private-room", "private.event", { ok: true });
+    await expect(delivered).resolves.toEqual({ ok: true });
+  });
+
+  test("rejects missing or tampered authorization without subscribing", async () => {
+    const server = await startTestServer();
+
+    for (const auth of [undefined, `demo-key:${"0".repeat(64)}`]) {
+      const socket = await connectRawSocket(server.port);
+      const error = waitForRawEvent(socket, "pusher:error");
+      const data = {
+        channel: "private-room",
+        ...(auth === undefined ? {} : { auth }),
+      };
+
+      socket.send(JSON.stringify({ event: "pusher:subscribe", data }));
+
+      await expect(error).resolves.toMatchObject({ event: "pusher:error" });
+      const unexpectedDelivery = waitForOptionalRawEvent(
+        socket,
+        "private.event",
+        150,
+      );
+      server.publish("demo-app", "private-room", "private.event", {
+        ok: false,
+      });
+      await expect(unexpectedDelivery).resolves.toBeUndefined();
+    }
   });
 });
 
@@ -445,6 +534,24 @@ function waitForRawEvent(
   });
 }
 
+function waitForOptionalRawEvent(
+  socket: WebSocket,
+  expectedEvent: string,
+  timeoutMs: number,
+): Promise<Record<string, unknown> | undefined> {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => resolve(undefined), timeoutMs);
+
+    socket.addEventListener("message", (message) => {
+      const parsed = parseRawMessage(message);
+      if (parsed.event === expectedEvent) {
+        clearTimeout(timeout);
+        resolve(parsed);
+      }
+    });
+  });
+}
+
 function waitForRawClose(socket: WebSocket, timeoutMs = 2_000): Promise<void> {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -462,7 +569,11 @@ function parseRawMessage(message: MessageEvent): Record<string, unknown> {
   return JSON.parse(String(message.data)) as Record<string, unknown>;
 }
 
-function createClient(key: string, port: number): PusherClient {
+function createClient(
+  key: string,
+  port: number,
+  options: Record<string, unknown> = {},
+): PusherClient {
   const client = new Pusher(key, {
     cluster: "mt1",
     wsHost: "127.0.0.1",
@@ -470,6 +581,7 @@ function createClient(key: string, port: number): PusherClient {
     forceTLS: false,
     enabledTransports: ["ws"],
     disableStats: true,
+    ...options,
   });
   clients.push(client);
   return client;
