@@ -9,8 +9,9 @@ observability, and measured load-test results.
 
 ## Status
 
-Pre-alpha. The TypeScript scaffold is in place; protocol implementation starts
-with the config loader and WebSocket handshake.
+Pre-alpha. The TypeScript scaffold, validated config loading, and
+uWebSockets.js handshake are in place; the next protocol milestone is public
+channels.
 
 Implemented:
 
@@ -18,7 +19,8 @@ Implemented:
 |---|---|
 | TypeScript project scaffold | Done |
 | Strict typecheck and Vitest verify loop | Done |
-| Pusher protocol handshake | Planned |
+| Validated JSON config loader | Done |
+| Pusher protocol handshake | Done |
 | Public/private/presence channels | Planned |
 | Signed REST publish API | Planned |
 | Redis fan-out adapter | Planned |
@@ -51,7 +53,7 @@ Requirements:
 
 - Node.js 20+
 - npm
-- Bash for the commit-history audit script, or Git Bash on Windows
+- Bash or Git Bash if you want to run `scripts/verify.sh`
 
 Install dependencies:
 
