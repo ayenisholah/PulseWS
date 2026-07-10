@@ -97,10 +97,22 @@ export function channelEventMessage(
   event: string,
   data: unknown,
 ): PusherMessage {
+  return channelEventMessageFromEncodedData(
+    channel,
+    event,
+    encodePusherData(data),
+  );
+}
+
+export function channelEventMessageFromEncodedData(
+  channel: string,
+  event: string,
+  data: string,
+): PusherMessage {
   return {
     event,
     channel,
-    data: encodePusherData(data),
+    data,
   };
 }
 

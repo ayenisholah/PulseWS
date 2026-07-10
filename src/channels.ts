@@ -1,5 +1,9 @@
 export type ChannelType = "public" | "private" | "presence" | "encrypted";
 
+export const MAX_CHANNEL_NAME_LENGTH = 200;
+
+const CHANNEL_NAME_PATTERN = /^[A-Za-z0-9_\-=@,.;]+$/;
+
 export type ChannelValidationResult =
   | {
       ok: true;
@@ -31,14 +35,7 @@ export function classifyChannelName(channel: string): ChannelType {
 export function validatePublicChannelName(
   channel: unknown,
 ): ChannelValidationResult {
-  if (typeof channel !== "string" || channel.length === 0) {
-    return {
-      ok: false,
-      reason: "Channel name must be a non-empty string",
-    };
-  }
-
-  if (channel.startsWith("#")) {
+  if (!isValidChannelName(channel)) {
     return {
       ok: false,
       reason: "Channel name is invalid",
@@ -59,6 +56,14 @@ export function validatePublicChannelName(
     type,
     channel,
   };
+}
+
+export function isValidChannelName(channel: unknown): channel is string {
+  return (
+    typeof channel === "string" &&
+    channel.length <= MAX_CHANNEL_NAME_LENGTH &&
+    CHANNEL_NAME_PATTERN.test(channel)
+  );
 }
 
 export function topicFor(appId: string, channel: string): string {

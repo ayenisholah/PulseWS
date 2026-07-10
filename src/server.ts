@@ -1,5 +1,9 @@
 import uWS, { type us_listen_socket } from "uWebSockets.js";
 
+import {
+  LocalEventAdapter,
+  type LocalEventSocket,
+} from "./adapter/local.js";
 import { verifyRestRequest } from "./auth.js";
 import { topicFor, validatePublicChannelName } from "./channels.js";
 import type { AppConfig, PulseWsConfig } from "./config.js";
@@ -7,15 +11,16 @@ import {
   APP_NOT_FOUND_CLOSE_CODE,
   APP_NOT_FOUND_MESSAGE,
   DEFAULT_ACTIVITY_TIMEOUT_SECONDS,
-  channelEventMessage,
   connectionEstablishedMessage,
   createSocketId,
   decodeClientMessage,
+  encodePusherData,
   encodePusherMessage,
   errorMessage,
   pongMessage,
   subscriptionSucceededMessage,
 } from "./protocol.js";
+import { MAX_INGRESS_BYTES, parsePublishRequest } from "./publish.js";
 
 const DEFAULT_ACTIVITY_GRACE_SECONDS = 30;
 const DEFAULT_REAPER_INTERVAL_MILLISECONDS = 1_000;
@@ -61,6 +66,8 @@ export async function startServer(
   );
   const app = uWS.App();
   const acceptedSockets = new Set<uWS.WebSocket<SocketData>>();
+  const acceptedSocketsById = new Map<string, LocalEventSocket>();
+  const adapter = new LocalEventAdapter(app, acceptedSocketsById);
   const activityTimeoutSeconds =
     timing.activityTimeoutSeconds ?? DEFAULT_ACTIVITY_TIMEOUT_SECONDS;
   const activityGraceSeconds =
@@ -70,6 +77,7 @@ export async function startServer(
     DEFAULT_REAPER_INTERVAL_MILLISECONDS;
 
   app.ws<SocketData>("/app/:key", {
+    maxPayloadLength: MAX_INGRESS_BYTES,
     upgrade: (res, req, context) => {
       const appKey = req.getParameter(0) ?? "";
       const configuredApp = appsByKey.get(appKey);
@@ -113,6 +121,10 @@ export async function startServer(
 
       data.lastActivityAt = Date.now();
       acceptedSockets.add(ws);
+      acceptedSocketsById.set(
+        data.socketId,
+        ws as uWS.WebSocket<Extract<SocketData, { accepted: true }>>,
+      );
       ws.send(
         encodePusherMessage(
           connectionEstablishedMessage(data.socketId, activityTimeoutSeconds),
@@ -153,6 +165,9 @@ export async function startServer(
       data.closed = true;
       if (data.accepted) {
         acceptedSockets.delete(ws);
+        if (acceptedSocketsById.get(data.socketId) === ws) {
+          acceptedSocketsById.delete(data.socketId);
+        }
         data.subscriptions.clear();
       }
     },
@@ -163,6 +178,7 @@ export async function startServer(
     const path = req.getUrl();
     const rawQuery = req.getQuery();
     const chunks: Buffer[] = [];
+    let bodyLength = 0;
     let aborted = false;
     let completed = false;
 
@@ -175,7 +191,20 @@ export async function startServer(
         return;
       }
 
-      chunks.push(Buffer.from(chunk));
+      const bodyChunk = Buffer.from(chunk);
+      bodyLength += bodyChunk.length;
+      if (bodyLength > MAX_INGRESS_BYTES) {
+        completed = true;
+        res.cork(() => {
+          res
+            .writeStatus("413 Payload Too Large")
+            .writeHeader("content-type", "application/json")
+            .end("{}");
+        });
+        return;
+      }
+
+      chunks.push(bodyChunk);
       if (!isLast) {
         return;
       }
@@ -197,16 +226,39 @@ export async function startServer(
       }
 
       res.cork(() => {
-        if (authorized) {
+        if (!authorized || !configuredApp) {
           res
-            .writeStatus("200 OK")
+            .writeStatus("401 Unauthorized")
             .writeHeader("content-type", "application/json")
             .end("{}");
           return;
         }
 
+        let publishRequest;
+        try {
+          publishRequest = parsePublishRequest(rawBody);
+        } catch {
+          res
+            .writeStatus("400 Bad Request")
+            .writeHeader("content-type", "application/json")
+            .end("{}");
+          return;
+        }
+
+        for (const channel of publishRequest.channels) {
+          adapter.publish({
+            appId: configuredApp.id,
+            channel,
+            event: publishRequest.name,
+            data: publishRequest.data,
+            ...(publishRequest.socketId === undefined
+              ? {}
+              : { excludeSocket: publishRequest.socketId }),
+          });
+        }
+
         res
-          .writeStatus("401 Unauthorized")
+          .writeStatus("200 OK")
           .writeHeader("content-type", "application/json")
           .end("{}");
       });
@@ -235,10 +287,12 @@ export async function startServer(
   return {
     port: boundPort,
     publish: (appId, channel, event, data) =>
-      app.publish(
-        topicFor(appId, channel),
-        encodePusherMessage(channelEventMessage(channel, event, data)),
-      ),
+      adapter.publish({
+        appId,
+        channel,
+        event,
+        data: encodePusherData(data),
+      }),
     close: () => {
       clearInterval(reaper);
       uWS.us_listen_socket_close(listenSocket);
