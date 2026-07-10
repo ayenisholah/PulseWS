@@ -1,0 +1,13 @@
+{
+  "port": 6001,
+  "redisUrl": "redis://localhost:6379",
+  "apps": [
+    {
+      "id": "demo-app",
+      "key": "demo-key",
+      "secret": "replace-with-a-long-random-secret",
+      "maxConnections": 1000,
+      "maxClientEventsPerSecond": 10
+    }
+  ]
+}

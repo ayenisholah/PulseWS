@@ -36,6 +36,7 @@ describe("TypeScript project scaffold", () => {
       "zod",
     ]);
     expect(Object.keys(packageJson.devDependencies).sort()).toEqual([
+      "@types/node",
       "pusher",
       "pusher-js",
       "tsx",
