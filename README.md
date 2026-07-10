@@ -10,8 +10,9 @@ observability, and measured load-test results.
 ## Status
 
 Pre-alpha. The TypeScript scaffold, validated config loading,
-uWebSockets.js handshake, and public channel subscribe/unsubscribe path are in
-place; the next protocol milestone is ping/pong liveness.
+uWebSockets.js handshake, public channels, connection liveness, and the signed
+REST publish path are in place; the next protocol milestone is private and
+presence channels.
 
 Implemented:
 
@@ -22,8 +23,9 @@ Implemented:
 | Validated JSON config loader | Done |
 | Pusher protocol handshake | Done |
 | Public channel subscribe/unsubscribe | Done |
+| Ping/pong liveness and connection reaping | Done |
+| Signed REST publish API | Done |
 | Private/presence channels | Planned |
-| Signed REST publish API | Planned |
 | Redis fan-out adapter | Planned |
 | Prometheus metrics and Grafana dashboard | Planned |
 | k6 load-test writeup with measured results | Planned |
@@ -52,7 +54,7 @@ PulseWS targets that migration path:
 
 Requirements:
 
-- Node.js 20+
+- Node.js 22+
 - npm
 - Bash or Git Bash if you want to run `scripts/verify.sh`
 
@@ -86,9 +88,8 @@ The implementation plan is intentionally ordered around compatibility gates:
 5. Private channels, presence channels, and client events.
 6. Redis adapter, cluster presence, metrics, Docker Compose, and load tests.
 
-See [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for the binding
-task list and [docs/pulsews-engineering-doc.md](docs/pulsews-engineering-doc.md)
-for protocol and architecture details.
+See [docs/pulsews-engineering-doc.md](docs/pulsews-engineering-doc.md) for
+protocol and architecture details.
 
 ## Scope
 
@@ -103,11 +104,8 @@ scaling story stays focused.
 |---|---|
 | `src/` | TypeScript source |
 | `test/` | Vitest unit and integration tests |
-| `docs/pulsews-engineering-doc.md` | Binding engineering spec |
-| `docs/IMPLEMENTATION_PLAN.md` | Ordered implementation plan |
-| `docs/MILESTONES.md` | Compatibility and release gates |
-| `docs/DECISIONS.md` | Approved decisions and deviations |
-| `docs/PROGRESS.md` | Append-only implementation log |
+| `docs/pulsews-engineering-doc.md` | Engineering spec |
+| `docs/DECISIONS.md` | Architecture decision records |
 | `scripts/verify.*` | Local build, lint, and test entrypoints |
 
 ## License
