@@ -87,6 +87,12 @@ redis.call('SET', KEYS[2], ARGV[1], 'EX', ARGV[2])
 return 1
 `;
 
+const DEREGISTER_NODE_SCRIPT = `
+redis.call('DEL', KEYS[1])
+redis.call('SREM', KEYS[2], ARGV[1])
+return 1
+`;
+
 const RESERVE_CONNECTION_SCRIPT = `
 local current = tonumber(redis.call('GET', KEYS[1]) or '0')
 if current >= tonumber(ARGV[1]) then
@@ -298,6 +304,13 @@ export class RedisClusterCoordinator implements ConnectionCoordinator {
     if (this.sweepTimer) {
       clearInterval(this.sweepTimer);
     }
+    await this.redis.eval(
+      DEREGISTER_NODE_SCRIPT,
+      2,
+      heartbeatKey(this.nodeId),
+      NODES_KEY,
+      this.nodeId,
+    );
   }
 
   private async refreshHeartbeat(): Promise<void> {

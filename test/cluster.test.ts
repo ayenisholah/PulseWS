@@ -76,6 +76,13 @@ describe("Redis cluster coordinator", () => {
       expect.any(String),
     );
     await coordinator.close();
+    expect(redis.eval).toHaveBeenCalledWith(
+      expect.stringContaining("redis.call('DEL', KEYS[1])"),
+      2,
+      heartbeatKey("node-a"),
+      "pulsews:nodes",
+      "node-a",
+    );
   });
 
   test("sweeps dead socket records and publishes final member removals", async () => {
