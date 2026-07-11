@@ -44,6 +44,11 @@ release.
   removal fan-out after crashes.
 - Configurable REST publish token buckets with HTTP 429 responses and
   `PULSEWS_CLUSTER_SIZE` per-node allowance division.
+- Production TypeScript emit build, non-root multi-stage Docker image, health
+  endpoint, and a two-node Compose topology with Redis 7, nginx,
+  Prometheus, and Grafana.
+- Cluster smoke harness covering distinct load-balanced nodes, demo
+  authorization, Redis presence, and signed cross-node REST delivery.
 
 ### Changed
 

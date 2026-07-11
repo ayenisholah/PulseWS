@@ -1,0 +1,11 @@
+.git
+.github
+node_modules
+dist
+coverage
+*.log
+.env*
+pulsews.config.json
+deploy/pulsews.config.json
+docs
+test

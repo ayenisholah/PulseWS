@@ -35,6 +35,7 @@ Implemented:
 | Redis fan-out adapter | Done |
 | Redis heartbeat and dead-node cleanup | Done |
 | Connection caps and REST publish limits | Done |
+| Docker Compose cluster artifacts | Ready; VPS smoke pending |
 | Prometheus metrics and Grafana dashboard | Planned |
 | k6 load-test writeup with measured results | Planned |
 
@@ -109,6 +110,15 @@ bucket; exhausted requests return HTTP 429 and recover as tokens refill.
 
 The two-node integration test runs when `PULSEWS_TEST_REDIS_URL` is set. CI
 provisions Redis 7 and always runs this gate.
+
+## Compose Cluster
+
+The production stack and smoke gate live under [`deploy/`](deploy/README.md).
+It builds a non-root multi-stage image and runs two stable-ID PulseWS nodes,
+Redis 7, nginx `least_conn`, Prometheus, and Grafana. Copy the external config
+example, replace its secret, and follow the deployment README. The M3 cluster
+milestone remains pending until the full smoke succeeds on the Ubuntu VPS;
+Docker is not available in the local verification environment.
 
 ## Browser Demo
 

@@ -1,0 +1,10 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: pulsews
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - pulsews-a:6001
+          - pulsews-b:6001

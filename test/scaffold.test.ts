@@ -20,7 +20,7 @@ describe("TypeScript project scaffold", () => {
       private: true,
       type: "module",
       scripts: {
-        build: "tsc --noEmit",
+        build: "tsc -p tsconfig.build.json",
         lint: "tsc --noEmit",
         typecheck: "tsc --noEmit",
         test: "vitest run",

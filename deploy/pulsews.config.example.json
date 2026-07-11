@@ -1,0 +1,18 @@
+{
+  "port": 6001,
+  "redisUrl": "redis://redis:6379",
+  "apps": [
+    {
+      "id": "demo-app",
+      "key": "demo-key",
+      "secret": "replace-with-a-long-random-secret",
+      "maxConnections": 10000,
+      "maxClientEventsPerSecond": 10,
+      "maxRestPublishesPerSecond": 100
+    }
+  ],
+  "demo": {
+    "appKey": "demo-key",
+    "channel": "presence-demo"
+  }
+}

@@ -17,6 +17,7 @@ import {
   APP_NOT_FOUND_CLOSE_CODE,
   CONNECTION_LIMIT_ERROR_CODE,
   readClusterSize,
+  resolveNodeId,
   startServer,
   type PulseWsServer,
   type ServerTimingOptions,
@@ -118,6 +119,17 @@ describe("uWS server handshake", () => {
     const identified = await waitForRawEvent(socket, "pulsews:node");
     expect(JSON.parse(String(identified.data))).toEqual({
       node_id: server.nodeId,
+    });
+  });
+
+  test("exposes a health check with the active node id", async () => {
+    const server = await startTestServer();
+    const response = await fetch(`http://127.0.0.1:${server.port}/health`);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      status: "ok",
+      nodeId: server.nodeId,
     });
   });
 
@@ -906,6 +918,14 @@ describe("cluster sizing", () => {
         "PULSEWS_CLUSTER_SIZE must be a positive integer",
       );
     }
+  });
+
+  test("accepts stable node ids and rejects empty overrides", () => {
+    expect(resolveNodeId("pulsews-a")).toBe("pulsews-a");
+    expect(resolveNodeId(undefined)).toMatch(/^[0-9a-f-]{36}$/);
+    expect(() => resolveNodeId("   ")).toThrow(
+      "PULSEWS_NODE_ID must contain 1 to 100 characters",
+    );
   });
 });
 

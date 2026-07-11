@@ -115,7 +115,7 @@ export async function startServer(
   const app = uWS.App();
   const acceptedSockets = new Set<uWS.WebSocket<SocketData>>();
   const acceptedSocketsById = new Map<string, LocalEventSocket>();
-  const nodeId = randomUUID();
+  const nodeId = resolveNodeId(process.env.PULSEWS_NODE_ID);
   const logger = pino();
   const localAdapter = new LocalEventAdapter(app, acceptedSocketsById);
   const redisAdapter = config.redisUrl
@@ -361,6 +361,13 @@ export async function startServer(
     }
     registerDemoRoutes(app, demoAssets, demoApp, config.demo.channel);
   }
+
+  app.get("/health", (res) => {
+    res
+      .writeHeader("content-type", "application/json")
+      .writeHeader("cache-control", "no-store")
+      .end(JSON.stringify({ status: "ok", nodeId }));
+  });
 
   app.post("/apps/:appId/events", (res, req) => {
     const configuredApp = appsById.get(req.getParameter(0) ?? "");
@@ -923,4 +930,15 @@ export function readClusterSize(rawValue: string | undefined): number {
     throw new Error("PULSEWS_CLUSTER_SIZE must be a positive integer");
   }
   return clusterSize;
+}
+
+export function resolveNodeId(rawValue: string | undefined): string {
+  if (rawValue === undefined) {
+    return randomUUID();
+  }
+  const nodeId = rawValue.trim();
+  if (nodeId.length === 0 || nodeId.length > 100) {
+    throw new Error("PULSEWS_NODE_ID must contain 1 to 100 characters");
+  }
+  return nodeId;
 }

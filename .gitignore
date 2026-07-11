@@ -5,6 +5,7 @@ coverage/
 
 # runtime config with secrets (spec §12) — commit the .example file instead
 pulsews.config.json
+deploy/pulsews.config.json
 
 # env & logs
 .env
