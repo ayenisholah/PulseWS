@@ -6,6 +6,7 @@ import {
   createSocketId,
   decodeClientMessage,
   errorMessage,
+  nodeIdentifiedMessage,
   pongMessage,
   subscriptionSucceededMessage,
 } from "../src/protocol.js";
@@ -38,6 +39,14 @@ describe("pusher protocol helpers", () => {
     expect(JSON.parse(message.data)).toEqual({
       code: 4001,
       message: "App key not found",
+    });
+  });
+
+  test("encodes the serving node identity as a server event", () => {
+    const message = nodeIdentifiedMessage("node-1");
+    expect(message).toEqual({
+      event: "pulsews:node",
+      data: JSON.stringify({ node_id: "node-1" }),
     });
   });
 

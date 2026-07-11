@@ -39,6 +39,13 @@ export function connectionEstablishedMessage(
   };
 }
 
+export function nodeIdentifiedMessage(nodeId: string): PusherMessage {
+  return {
+    event: "pulsews:node",
+    data: encodePusherData({ node_id: nodeId }),
+  };
+}
+
 export function errorMessage(code: number, message: string): PusherMessage {
   return {
     event: "pusher:error",

@@ -54,3 +54,16 @@ Statuses: Proposed → Approved / Rejected; later possibly Superseded.
 - Consequences: the example has no additional dependencies and remains
   framework-neutral, but production users must adapt its authorization policy
   to their own web framework and identity system.
+
+## D-005: Make the browser demo an opt-in integrated mode
+
+- Date: 2026-07-11 · Status: Approved · Decider: Shola Ayeni
+- Context: requiring a second authentication process makes the core browser
+  demonstration harder to run, while an always-on signing endpoint would
+  unnecessarily expand the production attack surface.
+- Decision: an optional demo configuration enables static assets and a
+  restricted presence authorization endpoint for exactly one configured app
+  and channel. Without that configuration, no demo routes are registered.
+- Consequences: the demo runs in one process and remains disabled by default;
+  operators must not treat its anonymous guest authorization as an application
+  identity system.

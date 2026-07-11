@@ -26,6 +26,7 @@
   },
   "scripts": {
     "build": "tsc --noEmit",
+    "dev": "tsx src/index.ts",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

@@ -18,6 +18,19 @@ const appConfigSchema = z
   })
   .strict();
 
+const demoConfigSchema = z
+  .object({
+    appKey: z.string().min(1, "appKey is required"),
+    channel: z
+      .string()
+      .regex(
+        /^presence-[A-Za-z0-9_\-=@,.;]+$/,
+        "channel must be a valid presence channel",
+      )
+      .max(200, "channel must be 200 characters or fewer"),
+  })
+  .strict();
+
 export const configSchema = z
   .object({
     port: z
@@ -27,8 +40,21 @@ export const configSchema = z
       .max(65535, "port must be between 1 and 65535"),
     redisUrl: z.string().url("redisUrl must be a valid URL").optional(),
     apps: z.array(appConfigSchema).min(1, "at least one app is required"),
+    demo: demoConfigSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((config, context) => {
+    if (
+      config.demo &&
+      !config.apps.some((app) => app.key === config.demo?.appKey)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["demo", "appKey"],
+        message: "appKey must match a configured application",
+      });
+    }
+  });
 
 export type AppConfig = z.infer<typeof appConfigSchema>;
 export type PulseWsConfig = z.infer<typeof configSchema>;

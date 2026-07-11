@@ -7,7 +7,10 @@ import {
   startAuthServer,
   type RunningAuthServer,
 } from "../examples/auth-server/server.js";
-import { createPresenceChannelAuth } from "../src/auth.js";
+import {
+  createPresenceChannelAuth,
+  verifyPresenceChannelAuth,
+} from "../src/auth.js";
 import type { PulseWsConfig } from "../src/config.js";
 import { MAX_INGRESS_BYTES } from "../src/publish.js";
 import {
@@ -65,6 +68,7 @@ const authServers: RunningAuthServer[] = [];
 const clients: PusherClient[] = [];
 const rawSockets: WebSocket[] = [];
 const rawSocketIds = new WeakMap<WebSocket, string>();
+const rawNodeMessages = new WeakMap<WebSocket, Record<string, unknown>>();
 
 afterEach(async () => {
   for (const client of clients.splice(0)) {
@@ -103,6 +107,80 @@ describe("uWS server handshake", () => {
         },
       },
     });
+  });
+
+  test("identifies the WebSocket node after connection", async () => {
+    const server = await startTestServer();
+    const socket = await connectRawSocket(server.port);
+
+    const identified = await waitForRawEvent(socket, "pulsews:node");
+    expect(JSON.parse(String(identified.data))).toEqual({
+      node_id: server.nodeId,
+    });
+  });
+});
+
+describe("integrated demo mode", () => {
+  test("serves safe assets and configuration only when enabled", async () => {
+    const disabled = await startTestServer();
+    expect((await fetch(`http://127.0.0.1:${disabled.port}/`)).status).toBe(404);
+
+    const server = await startDemoServer();
+    const [page, styles, script, config] = await Promise.all([
+      fetch(`http://127.0.0.1:${server.port}/`),
+      fetch(`http://127.0.0.1:${server.port}/styles.css`),
+      fetch(`http://127.0.0.1:${server.port}/demo.js`),
+      fetch(`http://127.0.0.1:${server.port}/demo/config`),
+    ]);
+
+    expect(page.status).toBe(200);
+    expect(page.headers.get("content-type")).toContain("text/html");
+    expect(styles.headers.get("content-type")).toContain("text/css");
+    expect(script.headers.get("content-type")).toContain("text/javascript");
+    await expect(config.json()).resolves.toEqual({
+      appKey: "demo-key",
+      channel: "presence-demo",
+    });
+    expect(await page.text()).not.toContain("demo-secret");
+    expect(await styles.text()).not.toContain("demo-secret");
+    expect(await script.text()).not.toContain("demo-secret");
+  });
+
+  test("authorizes guests only for the configured demo channel", async () => {
+    const server = await startDemoServer();
+    const response = await fetch(`http://127.0.0.1:${server.port}/demo/auth`, {
+      method: "POST",
+      body: new URLSearchParams({
+        socket_id: "123.456",
+        channel_name: "presence-demo",
+        user_id: "guest-123",
+        user_info: JSON.stringify({ name: "Guest 123" }),
+      }),
+    });
+    expect(response.status).toBe(200);
+    const authorization = (await response.json()) as {
+      auth: string;
+      channel_data: string;
+    };
+    expect(
+      verifyPresenceChannelAuth(
+        { key: "demo-key", secret: "demo-secret" },
+        "123.456",
+        "presence-demo",
+        authorization.channel_data,
+        authorization.auth,
+      ),
+    ).toBe(true);
+
+    const rejected = await fetch(`http://127.0.0.1:${server.port}/demo/auth`, {
+      method: "POST",
+      body: new URLSearchParams({
+        socket_id: "123.456",
+        channel_name: "presence-other",
+        user_id: "guest-123",
+      }),
+    });
+    expect(rejected.status).toBe(403);
   });
 });
 
@@ -757,6 +835,15 @@ async function startTestServer(
   return server;
 }
 
+async function startDemoServer(): Promise<PulseWsServer> {
+  const server = await startServer({
+    ...testConfig,
+    demo: { appKey: "demo-key", channel: "presence-demo" },
+  });
+  servers.push(server);
+  return server;
+}
+
 async function startTestAuthServer(): Promise<RunningAuthServer> {
   const server = await startAuthServer({
     appKey: "demo-key",
@@ -787,6 +874,9 @@ function connectRawSocket(port: number): Promise<WebSocket> {
         rawSocketIds.set(socket, connectionData.socket_id);
         clearTimeout(timeout);
         resolve(socket);
+      }
+      if (parsed.event === "pulsews:node") {
+        rawNodeMessages.set(socket, parsed);
       }
     });
 
@@ -833,6 +923,12 @@ function waitForRawEvent(
   socket: WebSocket,
   expectedEvent: string,
 ): Promise<Record<string, unknown>> {
+  if (expectedEvent === "pulsews:node") {
+    const cached = rawNodeMessages.get(socket);
+    if (cached) {
+      return Promise.resolve(cached);
+    }
+  }
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       reject(new Error(`Timed out waiting for ${expectedEvent}`));

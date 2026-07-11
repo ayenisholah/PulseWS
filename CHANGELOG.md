@@ -31,6 +31,8 @@ release.
   per-connection token-bucket rate limiting.
 - Single-node presence channels with authenticated membership, unique-user
   rosters, join/leave events, and disconnect cleanup.
+- Opt-in integrated browser demo with live node and connection state, presence
+  roster, bounded event log, and peer client-event controls.
 
 ### Changed
 

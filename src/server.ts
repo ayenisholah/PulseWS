@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import uWS, { type us_listen_socket } from "uWebSockets.js";
 
 import {
@@ -18,6 +20,11 @@ import {
 } from "./channels.js";
 import type { AppConfig, PulseWsConfig } from "./config.js";
 import {
+  authorizeDemoPresence,
+  loadDemoAssets,
+  type DemoAssets,
+} from "./demo.js";
+import {
   APP_NOT_FOUND_CLOSE_CODE,
   APP_NOT_FOUND_MESSAGE,
   CLIENT_EVENT_RATE_LIMIT_CODE,
@@ -29,6 +36,7 @@ import {
   encodePusherData,
   encodePusherMessage,
   errorMessage,
+  nodeIdentifiedMessage,
   pongMessage,
   subscriptionSucceededMessage,
 } from "./protocol.js";
@@ -65,6 +73,7 @@ type SocketData =
 
 export type PulseWsServer = {
   port: number;
+  nodeId: string;
   publish: (
     appId: string,
     channel: string,
@@ -84,6 +93,7 @@ export async function startServer(
   config: PulseWsConfig,
   timing: ServerTimingOptions = {},
 ): Promise<PulseWsServer> {
+  const demoAssets = config.demo ? await loadDemoAssets() : undefined;
   const appsByKey = new Map(config.apps.map((app) => [app.key, app]));
   const appsById = new Map(
     config.apps.map((configuredApp) => [configuredApp.id, configuredApp]),
@@ -93,6 +103,7 @@ export async function startServer(
   const acceptedSocketsById = new Map<string, LocalEventSocket>();
   const adapter = new LocalEventAdapter(app, acceptedSocketsById);
   const presence = new LocalPresenceRegistry();
+  const nodeId = randomUUID();
   const activityTimeoutSeconds =
     timing.activityTimeoutSeconds ?? DEFAULT_ACTIVITY_TIMEOUT_SECONDS;
   const activityGraceSeconds =
@@ -159,6 +170,7 @@ export async function startServer(
           connectionEstablishedMessage(data.socketId, activityTimeoutSeconds),
         ),
       );
+      ws.send(encodePusherMessage(nodeIdentifiedMessage(nodeId)));
     },
     message: (ws, message) => {
       const data = ws.getUserData();
@@ -210,6 +222,14 @@ export async function startServer(
       }
     },
   });
+
+  if (config.demo && demoAssets) {
+    const demoApp = appsByKey.get(config.demo.appKey);
+    if (!demoApp) {
+      throw new Error("Demo app is not configured");
+    }
+    registerDemoRoutes(app, demoAssets, demoApp, config.demo.channel);
+  }
 
   app.post("/apps/:appId/events", (res, req) => {
     const configuredApp = appsById.get(req.getParameter(0) ?? "");
@@ -320,6 +340,7 @@ export async function startServer(
 
   return {
     port: boundPort,
+    nodeId,
     publish: (appId, channel, event, data) =>
       adapter.publish({
         appId,
@@ -332,6 +353,92 @@ export async function startServer(
       uWS.us_listen_socket_close(listenSocket);
     },
   };
+}
+
+function registerDemoRoutes(
+  app: uWS.TemplatedApp,
+  assets: DemoAssets,
+  demoApp: AppConfig,
+  channel: string,
+): void {
+  app.get("/", (res) => {
+    sendStaticAsset(res, assets.html, "text/html; charset=utf-8");
+  });
+  app.get("/styles.css", (res) => {
+    sendStaticAsset(res, assets.css, "text/css; charset=utf-8");
+  });
+  app.get("/demo.js", (res) => {
+    sendStaticAsset(res, assets.javascript, "text/javascript; charset=utf-8");
+  });
+  app.get("/demo/config", (res) => {
+    res
+      .writeHeader("content-type", "application/json")
+      .writeHeader("cache-control", "no-store")
+      .end(JSON.stringify({ appKey: demoApp.key, channel }));
+  });
+  app.post("/demo/auth", (res) => {
+    const body = new LimitedBodyBuffer();
+    let aborted = false;
+    let completed = false;
+    res.onAborted(() => {
+      aborted = true;
+    });
+    res.onData((chunk, isLast) => {
+      if (aborted || completed) {
+        return;
+      }
+      if (!body.append(chunk)) {
+        completed = true;
+        res.cork(() => {
+          res
+            .writeStatus("413 Payload Too Large")
+            .writeHeader("content-type", "application/json")
+            .end("{}");
+        });
+        return;
+      }
+      if (!isLast) {
+        return;
+      }
+
+      completed = true;
+      let authorization;
+      try {
+        authorization = authorizeDemoPresence(
+          demoApp,
+          channel,
+          body.toBuffer(),
+        );
+      } catch {
+        res.cork(() => {
+          res
+            .writeStatus("403 Forbidden")
+            .writeHeader("content-type", "application/json")
+            .end("{}");
+        });
+        return;
+      }
+      if (!aborted) {
+        res.cork(() => {
+          res
+            .writeHeader("content-type", "application/json")
+            .writeHeader("cache-control", "no-store")
+            .end(JSON.stringify(authorization));
+        });
+      }
+    });
+  });
+}
+
+function sendStaticAsset(
+  res: uWS.HttpResponse,
+  body: Buffer,
+  contentType: string,
+): void {
+  res
+    .writeHeader("content-type", contentType)
+    .writeHeader("cache-control", "no-store")
+    .end(body);
 }
 
 function listen(app: uWS.TemplatedApp, port: number): Promise<us_listen_socket> {

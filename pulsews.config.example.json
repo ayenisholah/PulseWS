@@ -9,5 +9,9 @@
       "maxConnections": 1000,
       "maxClientEventsPerSecond": 10
     }
-  ]
+  ],
+  "demo": {
+    "appKey": "demo-key",
+    "channel": "presence-demo"
+  }
 }

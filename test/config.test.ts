@@ -25,6 +25,29 @@ describe("config loader", () => {
     expect(parseConfig(validConfig)).toEqual(validConfig);
   });
 
+  test("accepts an opt-in demo for a configured app and presence channel", () => {
+    const demo = { appKey: "demo-key", channel: "presence-demo" };
+    expect(parseConfig({ ...validConfig, demo })).toEqual({
+      ...validConfig,
+      demo,
+    });
+  });
+
+  test("rejects demo configuration for unknown apps or non-presence channels", () => {
+    expect(() =>
+      parseConfig({
+        ...validConfig,
+        demo: { appKey: "unknown", channel: "presence-demo" },
+      }),
+    ).toThrow(/demo\.appKey: appKey must match a configured application/);
+    expect(() =>
+      parseConfig({
+        ...validConfig,
+        demo: { appKey: "demo-key", channel: "public-demo" },
+      }),
+    ).toThrow(/demo\.channel: channel must be a valid presence channel/);
+  });
+
   test("rejects invalid config with readable field paths", () => {
     expect(() =>
       parseConfig({

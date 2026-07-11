@@ -11,9 +11,9 @@ observability, and measured load-test results.
 
 Pre-alpha. The TypeScript scaffold, validated config loading,
 uWebSockets.js handshake, public channels, connection liveness, and the signed
-REST publishing and the single-node protocol surface are in place, including
-public, private, and presence channels plus rate-limited client events. The
-next milestone is the browser demo page.
+REST publishing and the single-node MVP are in place, including public,
+private, and presence channels, rate-limited client events, and an opt-in live
+browser demo. The next milestone is Redis-backed multi-node fan-out.
 
 Implemented:
 
@@ -29,6 +29,7 @@ Implemented:
 | Private channels | Done |
 | Client events and per-connection rate limiting | Done |
 | Presence channels | Done (single node) |
+| Integrated browser demo | Done |
 | Redis fan-out adapter | Planned |
 | Prometheus metrics and Grafana dashboard | Planned |
 | k6 load-test writeup with measured results | Planned |
@@ -80,6 +81,21 @@ policy bypass:
 powershell -ExecutionPolicy Bypass -File scripts\verify.ps1
 ```
 
+## Browser Demo
+
+The example configuration enables an anonymous guest demo for one presence
+channel. Copy it, start PulseWS, and open <http://127.0.0.1:6001>:
+
+```powershell
+Copy-Item pulsews.config.example.json pulsews.config.json
+npm run dev
+```
+
+Open a second tab to watch the presence roster update and exchange client
+events. The `demo` configuration is optional; when omitted, the page and its
+restricted guest authorization route are not registered. Demo authorization
+is for local compatibility testing, not application identity.
+
 ## Roadmap
 
 The implementation plan is intentionally ordered around compatibility gates:
@@ -106,6 +122,7 @@ scaling story stays focused.
 | Path | Purpose |
 |---|---|
 | `src/` | TypeScript source |
+| `public/` | Opt-in browser demo assets |
 | `test/` | Vitest unit and integration tests |
 | `docs/pulsews-engineering-doc.md` | Engineering spec |
 | `docs/DECISIONS.md` | Architecture decision records |

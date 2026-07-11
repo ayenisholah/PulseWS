@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="PulseWS live protocol compatibility demo"
+    />
+    <title>PulseWS Live Console</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script defer src="https://cdn.jsdelivr.net/npm/pusher-js@8.5.0/dist/web/pusher.min.js"></script>
+    <script defer src="/demo.js"></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">PUSHER PROTOCOL 7 · SINGLE NODE</p>
+          <h1>PulseWS <span>Live Console</span></h1>
+          <p class="hero-copy">
+            A live compatibility surface for presence, client events, and
+            connection state. Every value below comes from this running node.
+          </p>
+        </div>
+        <div class="status-cluster" aria-label="Connection details">
+          <div class="connection-pill" data-state="connecting" id="connection-pill">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span id="connection-state">Connecting</span>
+          </div>
+          <dl class="identity-grid">
+            <div>
+              <dt>Node</dt>
+              <dd id="node-id">Waiting…</dd>
+            </div>
+            <div>
+              <dt>Socket</dt>
+              <dd id="socket-id">Waiting…</dd>
+            </div>
+          </dl>
+        </div>
+      </header>
+
+      <main class="dashboard">
+        <section class="panel roster-panel" aria-labelledby="roster-heading">
+          <div class="panel-heading">
+            <div>
+              <p class="section-label">Presence</p>
+              <h2 id="roster-heading">Online now</h2>
+            </div>
+            <span class="count-badge" id="member-count">0</span>
+          </div>
+          <p class="channel-name" id="channel-name">presence-demo</p>
+          <ul class="member-list" id="member-list" aria-live="polite">
+            <li class="empty-state">Waiting for the roster…</li>
+          </ul>
+        </section>
+
+        <section class="panel event-panel" aria-labelledby="event-heading">
+          <div class="panel-heading">
+            <div>
+              <p class="section-label">Event stream</p>
+              <h2 id="event-heading">Live activity</h2>
+            </div>
+            <button class="quiet-button" type="button" id="clear-log">Clear</button>
+          </div>
+          <ol class="event-log" id="event-log" aria-live="polite"></ol>
+        </section>
+
+        <section class="composer" aria-labelledby="composer-heading">
+          <div>
+            <p class="section-label">Client event</p>
+            <h2 id="composer-heading">Send to everyone else</h2>
+            <p>Your event is delivered to peers on this presence channel, not echoed back.</p>
+          </div>
+          <form id="message-form">
+            <label class="sr-only" for="message-input">Message</label>
+            <input
+              id="message-input"
+              name="message"
+              maxlength="240"
+              placeholder="Type a message…"
+              autocomplete="off"
+              required
+            />
+            <button type="submit" id="send-button" disabled>Send event</button>
+          </form>
+        </section>
+      </main>
+
+      <footer>
+        <span id="guest-name">Preparing guest identity…</span>
+        <span>Open a second tab to test presence.</span>
+      </footer>
+    </div>
+  </body>
+</html>

@@ -320,6 +320,8 @@ The demo page must stay dependency-light and easy to inspect:
 - Shows connection state, assigned node id, presence members, and a timestamped event log.
 - Includes controls for sending client events once private/presence channels exist.
 - Displays only live data from the running server; no hardcoded performance counters.
+- Demo routes are opt-in through configuration and include a guest presence
+  authorization endpoint restricted to the configured demo app and channel.
 
 ### 8.3 Design acceptance
 
