@@ -114,11 +114,11 @@ provisions Redis 7 and always runs this gate.
 ## Compose Cluster
 
 The production stack and smoke gate live under [`deploy/`](deploy/README.md).
-It builds a non-root multi-stage image and runs two stable-ID PulseWS nodes,
-Redis 7, nginx `least_conn`, Prometheus, and Grafana. Copy the external config
+It runs two stable-ID PulseWS nodes, Redis 7, nginx `least_conn`, Prometheus,
+and Grafana. The production image is built in GitHub Actions and pulled from
+GHCR, so local Docker is not required on Windows. Copy the external config
 example, replace its secret, and follow the deployment README. The M3 cluster
-milestone remains pending until the full smoke succeeds on the Ubuntu VPS;
-Docker is not available in the local verification environment.
+milestone remains pending until the full smoke succeeds on the Ubuntu VPS.
 
 ## Browser Demo
 

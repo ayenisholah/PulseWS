@@ -2,14 +2,17 @@
 
 The Compose stack runs two PulseWS nodes behind nginx with Redis 7,
 Prometheus, and Grafana. Application credentials stay in a host-mounted config
-file and are never copied into the image.
+file and are never copied into the image. PulseWS containers are pulled from
+GHCR by default, so Docker only needs to exist on the Linux host that runs the
+stack.
 
 ## Start
 
 ```sh
 cp deploy/pulsews.config.example.json deploy/pulsews.config.json
 # Replace the example secret before exposing the stack.
-docker compose -f deploy/docker-compose.yml up --build -d
+docker compose -f deploy/docker-compose.yml pull
+docker compose -f deploy/docker-compose.yml up -d
 ```
 
 The default endpoints are:
@@ -20,6 +23,42 @@ The default endpoints are:
 
 Override host ports with `PULSEWS_HTTP_PORT`, `PROMETHEUS_PORT`, and
 `GRAFANA_PORT`. Set `GF_SECURITY_ADMIN_PASSWORD` before exposing Grafana.
+Set `PULSEWS_IMAGE` if you need to pin a specific image tag or digest.
+
+## GitHub Actions deployment
+
+The repository now supports an Actions-based image and deployment flow:
+
+1. `container-image.yml` builds the production image on GitHub Actions and
+   pushes it to `ghcr.io/ayenisholah/pulsews`.
+2. `deploy-production.yml` uploads the `deploy/` bundle to the VPS, then runs
+   `docker compose pull` and `docker compose up -d` over SSH.
+3. Your Windows machine never needs Docker for this deployment path.
+
+Before the first deploy:
+
+```sh
+mkdir -p /opt/pulsews/deploy
+cp /path/to/pulsews/deploy/pulsews.config.example.json /opt/pulsews/deploy/pulsews.config.json
+# Replace the example app secret and any demo values before exposing the host.
+```
+
+GitHub repository secrets required by the deployment workflow:
+
+- `VPS_HOST`
+- `VPS_USER`
+- `VPS_SSH_KEY`
+- `VPS_KNOWN_HOSTS`
+
+The first image push creates a GHCR package. Set that package visibility to
+public if you want the VPS to pull it without extra registry credentials.
+
+Deploy from the GitHub Actions UI:
+
+1. Run `Container Image` on `main` to publish `ghcr.io/ayenisholah/pulsews:edge`.
+2. Run `Deploy Production` with `image_tag=edge`.
+3. Optional: set the smoke test secrets and enable the smoke input once the
+   host is reachable.
 
 ## Smoke gate
 

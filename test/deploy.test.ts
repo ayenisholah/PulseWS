@@ -31,6 +31,10 @@ describe("production container and Compose cluster", () => {
     expect(compose).toContain("PULSEWS_NODE_ID: pulsews-b");
     expect(compose).toContain('PULSEWS_CLUSTER_SIZE: "2"');
     expect(compose).toContain(
+      "image: ${PULSEWS_IMAGE:-ghcr.io/ayenisholah/pulsews:edge}",
+    );
+    expect(compose).toContain("pull_policy: always");
+    expect(compose).toContain(
       "./pulsews.config.json:/run/secrets/pulsews.config.json:ro",
     );
   });

@@ -14,9 +14,8 @@ services:
       retries: 10
 
   pulsews-a:
-    build:
-      context: ..
-      dockerfile: Dockerfile
+    image: ${PULSEWS_IMAGE:-ghcr.io/ayenisholah/pulsews:edge}
+    pull_policy: always
     restart: unless-stopped
     environment:
       PULSEWS_CONFIG: /run/secrets/pulsews.config.json
@@ -29,9 +28,8 @@ services:
         condition: service_healthy
 
   pulsews-b:
-    build:
-      context: ..
-      dockerfile: Dockerfile
+    image: ${PULSEWS_IMAGE:-ghcr.io/ayenisholah/pulsews:edge}
+    pull_policy: always
     restart: unless-stopped
     environment:
       PULSEWS_CONFIG: /run/secrets/pulsews.config.json

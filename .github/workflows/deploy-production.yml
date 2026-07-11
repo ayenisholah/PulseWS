@@ -1,0 +1,80 @@
+name: Deploy Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy"
+        required: true
+        default: edge
+      run_smoke:
+        description: "Run the cluster smoke test after deploy"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+      PULSEWS_IMAGE: ghcr.io/ayenisholah/pulsews:${{ inputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure SSH
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Upload deploy bundle
+        run: |
+          tar -czf deploy-bundle.tgz deploy
+          scp -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes deploy-bundle.tgz "$VPS_USER@$VPS_HOST:/tmp/pulsews-deploy-bundle.tgz"
+
+      - name: Deploy stack
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" "
+            set -eu
+            mkdir -p /opt/pulsews
+            tar -xzf /tmp/pulsews-deploy-bundle.tgz -C /opt/pulsews
+            test -f /opt/pulsews/deploy/pulsews.config.json
+            export PULSEWS_IMAGE='$PULSEWS_IMAGE'
+            docker compose -f /opt/pulsews/deploy/docker-compose.yml pull
+            docker compose -f /opt/pulsews/deploy/docker-compose.yml up -d
+            docker compose -f /opt/pulsews/deploy/docker-compose.yml ps
+          "
+
+      - uses: actions/setup-node@v4
+        if: ${{ inputs.run_smoke }}
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Run cluster smoke
+        if: ${{ inputs.run_smoke }}
+        env:
+          PULSEWS_SMOKE_URL: ${{ secrets.PULSEWS_SMOKE_URL }}
+          PULSEWS_APP_ID: ${{ secrets.PULSEWS_APP_ID }}
+          PULSEWS_APP_KEY: ${{ secrets.PULSEWS_APP_KEY }}
+          PULSEWS_APP_SECRET: ${{ secrets.PULSEWS_APP_SECRET }}
+        run: |
+          test -n "$PULSEWS_SMOKE_URL"
+          test -n "$PULSEWS_APP_ID"
+          test -n "$PULSEWS_APP_KEY"
+          test -n "$PULSEWS_APP_SECRET"
+          npm ci
+          npm run smoke:cluster
