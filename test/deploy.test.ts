@@ -57,6 +57,9 @@ describe("production container and Compose cluster", () => {
     expect(prometheus).toContain("pulsews-b:6001");
     expect(datasource).toContain("url: http://prometheus:9090");
     expect(datasource).toContain("uid: pulsews-prometheus");
+    expect(datasource).toContain("deleteDatasources:");
+    expect(datasource).toContain("prune: true");
+    expect(datasource).toContain("version: 1");
     expect(provider).toContain("/etc/grafana/provisioning/dashboards/json");
     for (const metric of [
       "pulsews_connections",

@@ -110,6 +110,11 @@ before exposing this port. After deployment, verify that Prometheus reports
 both targets as **UP** and manually inspect every dashboard panel while the
 cluster smoke test is generating traffic.
 
+Datasource provisioning deletes and recreates the named Prometheus datasource
+with the stable `pulsews-prometheus` UID at startup. This intentionally repairs
+stale UID/name records in the persistent Grafana database while leaving users,
+dashboards, and other state intact.
+
 Inspect service health and logs with:
 
 ```sh
