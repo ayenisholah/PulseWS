@@ -5,7 +5,7 @@
     {
       "id": "demo-app",
       "key": "demo-key",
-      "secret": "replace-with-a-long-random-secret",
+      "secret": "8c3f9f1c0c8a7c5c2c7b6e2f9a1d4b8e5f0a9c2d7e1f6a3b",
       "maxConnections": 10000,
       "maxClientEventsPerSecond": 10,
       "maxRestPublishesPerSecond": 100
