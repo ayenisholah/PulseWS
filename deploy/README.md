@@ -50,15 +50,23 @@ GitHub repository secrets required by the deployment workflow:
 - `VPS_SSH_KEY`
 - `VPS_KNOWN_HOSTS`
 
+To enable the post-deploy production smoke gate, also add these secrets to the
+`production` environment:
+
+- `PULSEWS_SMOKE_URL` (for example `http://43.106.12.32:8080` until TLS is added)
+- `PULSEWS_APP_ID`
+- `PULSEWS_APP_KEY`
+- `PULSEWS_APP_SECRET`
+
 The first image push creates a GHCR package. Set that package visibility to
 public if you want the VPS to pull it without extra registry credentials.
 
 Deploy from the GitHub Actions UI:
 
 1. Run `Container Image` on `main` to publish `ghcr.io/ayenisholah/pulsews:edge`.
-2. Run `Deploy Production` with `image_tag=edge`.
-3. Optional: set the smoke test secrets and enable the smoke input once the
-   host is reachable.
+2. Run `Deploy Production` with `image_tag=edge` and `run_smoke=true`.
+3. Treat a failed smoke job as a failed deployment; inspect the service logs
+   before retrying.
 
 ## Smoke gate
 
@@ -76,6 +84,25 @@ The smoke connects two `pusher-js` clients through nginx, requires distinct
 stable node IDs, checks the cross-node presence roster, authorizes both demo
 members through nginx, and publishes a signed event through the load balancer
 that both clients must receive.
+
+## Metrics and dashboard
+
+Each PulseWS node exposes Prometheus metrics at `/metrics`. Prometheus scrapes
+both internal nodes every five seconds. Grafana provisions the **PulseWS
+Overview** dashboard automatically in the **PulseWS** folder with panels for:
+
+- connections by application;
+- inbound and outbound message throughput;
+- same-node and cross-node p50/p99 delivery latency;
+- dropped messages by reason;
+- client-event rejections; and
+- REST publish throttling.
+
+Open Grafana on port `3000` and sign in with `GF_SECURITY_ADMIN_USER` and
+`GF_SECURITY_ADMIN_PASSWORD`. Set a strong password in the VPS environment
+before exposing this port. After deployment, verify that Prometheus reports
+both targets as **UP** and manually inspect every dashboard panel while the
+cluster smoke test is generating traffic.
 
 Inspect service health and logs with:
 

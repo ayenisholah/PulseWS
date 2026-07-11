@@ -59,6 +59,7 @@ import {
   type PresenceMember,
   type PresenceRegistry,
 } from "./presence.js";
+import { PulseWsMetrics } from "./metrics.js";
 import { TokenBucket } from "./ratelimit.js";
 import { RedisPresenceRegistry } from "./redis-presence.js";
 
@@ -117,7 +118,13 @@ export async function startServer(
   const acceptedSocketsById = new Map<string, LocalEventSocket>();
   const nodeId = resolveNodeId(process.env.PULSEWS_NODE_ID);
   const logger = pino();
-  const localAdapter = new LocalEventAdapter(app, acceptedSocketsById);
+  const metrics = new PulseWsMetrics(config.apps.map(({ id }) => id));
+  const localAdapter = new LocalEventAdapter(
+    app,
+    acceptedSocketsById,
+    nodeId,
+    metrics,
+  );
   const redisAdapter = config.redisUrl
     ? new RedisEventAdapter(
         config.redisUrl,
@@ -127,6 +134,7 @@ export async function startServer(
         {
           warn: (details, message) => logger.warn(details, message),
           error: (details, message) => logger.error(details, message),
+          drop: (reason) => metrics.drop(reason),
         },
       )
     : undefined;
@@ -146,6 +154,7 @@ export async function startServer(
           {
             warn: (details, message) => logger.warn(details, message),
             error: (details, message) => logger.error(details, message),
+            drop: (reason) => metrics.drop(reason),
           },
           timing,
         )
@@ -255,6 +264,7 @@ export async function startServer(
           }
 
           data.connectionReserved = true;
+          metrics.connectionOpened(data.app.id);
           data.lastActivityAt = Date.now();
           acceptedSockets.add(ws);
           acceptedSocketsById.set(
@@ -272,6 +282,7 @@ export async function startServer(
           ws.send(encodePusherMessage(nodeIdentifiedMessage(nodeId)));
         })
         .catch((error: unknown) => {
+          metrics.drop("connection_reservation_failure");
           logger.error(
             { error: formatError(error), appId: data.app.id },
             "Connection reservation failed",
@@ -287,6 +298,7 @@ export async function startServer(
       if (!data.accepted) {
         return;
       }
+      metrics.messageIn(data.app.id);
       data.lastActivityAt = Date.now();
 
       let clientMessage;
@@ -305,7 +317,14 @@ export async function startServer(
       if (clientMessage.event === "pusher:subscribe") {
         enqueueSubscriptionOperation(
           ws,
-          () => handleSubscribe(ws, clientMessage.data, adapter, presence),
+          () =>
+            handleSubscribe(
+              ws,
+              clientMessage.data,
+              adapter,
+              presence,
+              metrics,
+            ),
           logger,
         );
         return;
@@ -314,14 +333,21 @@ export async function startServer(
       if (clientMessage.event === "pusher:unsubscribe") {
         enqueueSubscriptionOperation(
           ws,
-          () => handleUnsubscribe(ws, clientMessage.data, adapter, presence),
+          () =>
+            handleUnsubscribe(
+              ws,
+              clientMessage.data,
+              adapter,
+              presence,
+              metrics,
+            ),
           logger,
         );
         return;
       }
 
       if (clientMessage.event.startsWith("client-")) {
-        handleClientEvent(ws, clientMessage, adapter);
+        handleClientEvent(ws, clientMessage, adapter, metrics);
       }
     },
     close: (ws) => {
@@ -332,7 +358,16 @@ export async function startServer(
         if (acceptedSocketsById.get(data.socketId) === ws) {
           acceptedSocketsById.delete(data.socketId);
         }
+        for (const channel of data.subscriptions) {
+          metrics.subscriptionRemoved(
+            data.app.id,
+            classifyChannelName(channel),
+          );
+        }
         data.subscriptions.clear();
+        if (data.connectionReserved) {
+          metrics.connectionClosed(data.app.id);
+        }
         void data.subscriptionOperations
           .then(async () => {
             for (const channel of data.presenceMemberships.keys()) {
@@ -345,6 +380,7 @@ export async function startServer(
             }
           })
           .catch((error: unknown) => {
+            metrics.drop("cluster_cleanup_failure");
             logger.error(
               { error: formatError(error), socketId: data.socketId },
               "Presence disconnect cleanup failed",
@@ -367,6 +403,31 @@ export async function startServer(
       .writeHeader("content-type", "application/json")
       .writeHeader("cache-control", "no-store")
       .end(JSON.stringify({ status: "ok", nodeId }));
+  });
+
+  app.get("/metrics", (res) => {
+    let aborted = false;
+    res.onAborted(() => {
+      aborted = true;
+    });
+    void metrics.exposition().then(
+      (body) => {
+        if (!aborted) {
+          res.cork(() => {
+            res
+              .writeHeader("content-type", metrics.contentType())
+              .writeHeader("cache-control", "no-store")
+              .end(body);
+          });
+        }
+      },
+      (error: unknown) => {
+        logger.error({ error: formatError(error) }, "Metric exposition failed");
+        if (!aborted) {
+          res.cork(() => res.writeStatus("500 Internal Server Error").end());
+        }
+      },
+    );
   });
 
   app.post("/apps/:appId/events", (res, req) => {
@@ -442,6 +503,7 @@ export async function startServer(
 
       const publishLimiter = restPublishLimiters.get(configuredApp.id);
       if (!publishLimiter?.tryConsume()) {
+        metrics.throttleRest(configuredApp.id);
         res.cork(() => {
           res
             .writeStatus("429 Too Many Requests")
@@ -449,6 +511,10 @@ export async function startServer(
             .end("{}");
         });
         return;
+      }
+
+      for (const _channel of publishRequest.channels) {
+        metrics.messageIn(configuredApp.id);
       }
 
       void Promise.all(
@@ -645,6 +711,7 @@ async function handleSubscribe(
   payload: unknown,
   adapter: EventAdapter,
   presence: PresenceRegistry,
+  metrics: PulseWsMetrics,
 ): Promise<void> {
   const data = ws.getUserData();
   if (!data.accepted || data.closed) {
@@ -736,7 +803,10 @@ async function handleSubscribe(
 
     const topic = topicFor(data.app.id, validation.channel);
     ws.subscribe(topic);
-    data.subscriptions.add(validation.channel);
+    if (!data.subscriptions.has(validation.channel)) {
+      data.subscriptions.add(validation.channel);
+      metrics.subscriptionAdded(data.app.id, validation.type);
+    }
     data.presenceMemberships.set(validation.channel, presenceMember);
     ws.send(
       encodePusherMessage(
@@ -748,7 +818,10 @@ async function handleSubscribe(
 
   const topic = topicFor(data.app.id, validation.channel);
   ws.subscribe(topic);
-  data.subscriptions.add(validation.channel);
+  if (!data.subscriptions.has(validation.channel)) {
+    data.subscriptions.add(validation.channel);
+    metrics.subscriptionAdded(data.app.id, validation.type);
+  }
   ws.send(
     encodePusherMessage(subscriptionSucceededMessage(validation.channel)),
   );
@@ -759,6 +832,7 @@ async function handleUnsubscribe(
   payload: unknown,
   adapter: EventAdapter,
   presence: PresenceRegistry,
+  metrics: PulseWsMetrics,
 ): Promise<void> {
   const data = ws.getUserData();
   if (!data.accepted || data.closed) {
@@ -774,7 +848,9 @@ async function handleUnsubscribe(
   }
 
   ws.unsubscribe(topicFor(data.app.id, validation.channel));
-  data.subscriptions.delete(validation.channel);
+  if (data.subscriptions.delete(validation.channel)) {
+    metrics.subscriptionRemoved(data.app.id, validation.type);
+  }
   if (validation.type === "presence") {
     await leavePresenceChannel(data, validation.channel, adapter, presence);
     data.presenceMemberships.delete(validation.channel);
@@ -785,6 +861,7 @@ function handleClientEvent(
   ws: uWS.WebSocket<SocketData>,
   message: ClientMessage,
   adapter: EventAdapter,
+  metrics: PulseWsMetrics,
 ): void {
   const data = ws.getUserData();
   if (!data.accepted) {
@@ -798,6 +875,7 @@ function handleClientEvent(
     (channelType !== "private" && channelType !== "presence") ||
     !data.subscriptions.has(channel)
   ) {
+    metrics.rejectClientEvent(data.app.id, "invalid_channel");
     sendError(
       ws,
       4000,
@@ -807,6 +885,7 @@ function handleClientEvent(
   }
 
   if (!data.clientEventLimiter.tryConsume()) {
+    metrics.rejectClientEvent(data.app.id, "rate_limited");
     sendError(ws, CLIENT_EVENT_RATE_LIMIT_CODE, "Client event rate limit exceeded");
     return;
   }

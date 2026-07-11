@@ -133,6 +133,79 @@ describe("uWS server handshake", () => {
     });
   });
 
+  test("exposes connection, subscription, rejection, and throttle metrics", async () => {
+    const server = await startServer({
+      ...testConfig,
+      apps: testConfig.apps.map((app) => ({
+        ...app,
+        maxRestPublishesPerSecond: 1,
+      })),
+    });
+    servers.push(server);
+    const socket = await connectRawSocket(server.port);
+    const subscribed = waitForRawEvent(
+      socket,
+      "pusher_internal:subscription_succeeded",
+    );
+    socket.send(
+      JSON.stringify({
+        event: "pusher:subscribe",
+        data: { channel: "public-metrics" },
+      }),
+    );
+    await subscribed;
+    const rejected = waitForRawEvent(socket, "pusher:error");
+    socket.send(
+      JSON.stringify({
+        event: "client-invalid",
+        channel: "public-metrics",
+        data: {},
+      }),
+    );
+    await rejected;
+
+    const sdk = createServerSdk(server.port);
+    expect((await sdk.trigger("public-metrics", "accepted", {})).status).toBe(
+      200,
+    );
+    await expect(
+      sdk.trigger("public-metrics", "throttled", {}),
+    ).rejects.toMatchObject({ status: 429 });
+
+    const response = await fetch(`http://127.0.0.1:${server.port}/metrics`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/plain");
+    const exposition = await response.text();
+    expect(exposition).toContain('pulsews_connections{app_id="demo-app"} 1');
+    expect(exposition).toContain(
+      'pulsews_subscriptions{app_id="demo-app",channel_type="public"} 1',
+    );
+    expect(exposition).toContain(
+      'pulsews_client_event_rejections_total{app_id="demo-app",reason="invalid_channel"} 1',
+    );
+    expect(exposition).toContain(
+      'pulsews_rest_throttled_total{app_id="demo-app"} 1',
+    );
+    expect(exposition).toContain(
+      'pulsews_delivery_latency_seconds_count{app_id="demo-app",scope="same_node"} 1',
+    );
+    expect(exposition).toContain(
+      'pulsews_messages_total{app_id="demo-app",direction="out"} 1',
+    );
+
+    const closed = waitForRawClose(socket);
+    socket.close();
+    await closed;
+    await wait(25);
+    const afterClose = await (
+      await fetch(`http://127.0.0.1:${server.port}/metrics`)
+    ).text();
+    expect(afterClose).toContain('pulsews_connections{app_id="demo-app"} 0');
+    expect(afterClose).toContain(
+      'pulsews_subscriptions{app_id="demo-app",channel_type="public"} 0',
+    );
+  });
+
   test("refuses connections over the app cap and releases clean disconnects", async () => {
     const server = await startServer({
       ...testConfig,

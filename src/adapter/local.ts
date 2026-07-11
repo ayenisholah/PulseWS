@@ -18,16 +18,32 @@ type TopicPublisher = {
   publish: (topic: string, message: string) => boolean;
 };
 
+type LocalDeliveryObserver = {
+  messageOut: (appId: string) => void;
+  observeDelivery: (
+    appId: string,
+    scope: "same_node" | "cross_node",
+    latencyMs: number,
+  ) => void;
+  drop: (reason: string) => void;
+};
+
 export class LocalEventAdapter implements EventAdapter {
   constructor(
     private readonly app: TopicPublisher,
     private readonly socketsById: ReadonlyMap<string, LocalEventSocket>,
+    private readonly nodeId?: string,
+    private readonly observer?: LocalDeliveryObserver,
   ) {}
 
   async initialize(): Promise<void> {}
 
   async publish(event: EventPublish): Promise<boolean> {
-    return this.receive(event);
+    return this.receive({
+      ...event,
+      publishedAt: Date.now(),
+      ...(this.nodeId === undefined ? {} : { originNodeId: this.nodeId }),
+    });
   }
 
   receive(event: EventPublish): boolean {
@@ -48,7 +64,7 @@ export class LocalEventAdapter implements EventAdapter {
     }
 
     try {
-      return this.app.publish(
+      const delivered = this.app.publish(
         topic,
         encodePusherMessage(
           channelEventMessageFromEncodedData(
@@ -59,6 +75,18 @@ export class LocalEventAdapter implements EventAdapter {
           ),
         ),
       );
+      this.observer?.messageOut(event.appId);
+      if (!delivered) {
+        this.observer?.drop("no_local_subscribers");
+      }
+      if (event.publishedAt !== undefined && event.originNodeId !== undefined) {
+        this.observer?.observeDelivery(
+          event.appId,
+          event.originNodeId === this.nodeId ? "same_node" : "cross_node",
+          Date.now() - event.publishedAt,
+        );
+      }
+      return delivered;
     } finally {
       if (resubscribe && excludedSocket && event.excludeSocket) {
         const socketData = excludedSocket.getUserData();

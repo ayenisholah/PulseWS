@@ -33,6 +33,7 @@ describe("TypeScript project scaffold", () => {
     expect(Object.keys(packageJson.dependencies).sort()).toEqual([
       "ioredis",
       "pino",
+      "prom-client",
       "uWebSockets.js",
       "zod",
     ]);

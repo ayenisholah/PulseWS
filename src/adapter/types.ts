@@ -5,6 +5,8 @@ export type EventPublish = {
   data: string;
   excludeSocket?: string;
   userId?: string;
+  publishedAt?: number;
+  originNodeId?: string;
 };
 
 export interface EventAdapter {

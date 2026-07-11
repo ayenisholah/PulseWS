@@ -7,6 +7,8 @@ import {
   RedisEventAdapter,
   redisEventChannel,
 } from "../src/adapter/redis.js";
+import { LocalEventAdapter } from "../src/adapter/local.js";
+import { PulseWsMetrics } from "../src/metrics.js";
 
 const appId = "demo-app";
 const event = {
@@ -64,7 +66,11 @@ describe("Redis event adapter", () => {
       redisEventChannel(appId),
       publisher.publish.mock.calls[0]?.[1],
     );
-    expect(receive).toHaveBeenCalledWith(event);
+    expect(receive).toHaveBeenCalledWith({
+      ...event,
+      publishedAt: 123_456,
+      originNodeId: "node-a",
+    });
 
     now.mockRestore();
     await adapter.close();
@@ -111,6 +117,8 @@ describe("Redis event adapter", () => {
 
     expect(receive).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalledTimes(5);
+    expect(logger.drop).toHaveBeenCalledTimes(5);
+    expect(logger.drop).toHaveBeenCalledWith("malformed_redis_envelope");
 
     subscriber.emit(
       "message",
@@ -122,8 +130,50 @@ describe("Redis event adapter", () => {
       channel: "room",
       event: "event",
       data: "{}",
+      publishedAt: 123,
+      originNodeId: "node-a",
     });
 
+    await adapter.close();
+  });
+
+  test("records cross-node delivery latency from the Redis timestamp", async () => {
+    const publisher = new FakeRedis();
+    const subscriber = new FakeRedis();
+    const metrics = new PulseWsMetrics([appId]);
+    const local = new LocalEventAdapter(
+      { publish: () => true },
+      new Map(),
+      "node-a",
+      metrics,
+    );
+    const adapter = new RedisEventAdapter(
+      "redis://unused",
+      [appId],
+      "node-a",
+      local,
+      createLogger(),
+      { publisher, subscriber },
+    );
+    await adapter.initialize();
+
+    subscriber.emit(
+      "message",
+      redisEventChannel(appId),
+      JSON.stringify({
+        ...validEnvelope(),
+        ts: Date.now() - 10,
+        nodeId: "node-b",
+      }),
+    );
+
+    const exposition = await metrics.exposition();
+    expect(exposition).toContain(
+      'pulsews_delivery_latency_seconds_count{app_id="demo-app",scope="cross_node"} 1',
+    );
+    expect(exposition).toContain(
+      'pulsews_messages_total{app_id="demo-app",direction="out"} 1',
+    );
     await adapter.close();
   });
 
@@ -199,6 +249,7 @@ function createLogger() {
   return {
     warn: vi.fn((_details: Record<string, unknown>, _message: string) => {}),
     error: vi.fn((_details: Record<string, unknown>, _message: string) => {}),
+    drop: vi.fn((_reason: string) => {}),
   };
 }
 

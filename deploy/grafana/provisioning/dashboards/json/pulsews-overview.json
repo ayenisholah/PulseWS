@@ -1,0 +1,85 @@
+{
+  "annotations": { "list": [] },
+  "editable": false,
+  "graphTooltip": 1,
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "pulsews-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "id": 1,
+      "targets": [{ "expr": "sum by (app_id) (pulsews_connections)", "legendFormat": "{{app_id}}", "refId": "A" }],
+      "title": "Connections by app",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "pulsews-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "id": 2,
+      "targets": [{ "expr": "sum by (direction) (rate(pulsews_messages_total[1m]))", "legendFormat": "{{direction}}", "refId": "A" }],
+      "title": "Message throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "pulsews-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "id": 3,
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum by (le) (rate(pulsews_delivery_latency_seconds_bucket{scope=\"same_node\"}[5m])))", "legendFormat": "p50", "refId": "A" },
+        { "expr": "histogram_quantile(0.99, sum by (le) (rate(pulsews_delivery_latency_seconds_bucket{scope=\"same_node\"}[5m])))", "legendFormat": "p99", "refId": "B" }
+      ],
+      "title": "Same-node delivery latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "pulsews-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "id": 4,
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum by (le) (rate(pulsews_delivery_latency_seconds_bucket{scope=\"cross_node\"}[5m])))", "legendFormat": "p50", "refId": "A" },
+        { "expr": "histogram_quantile(0.99, sum by (le) (rate(pulsews_delivery_latency_seconds_bucket{scope=\"cross_node\"}[5m])))", "legendFormat": "p99", "refId": "B" }
+      ],
+      "title": "Cross-node delivery latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "pulsews-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
+      "id": 5,
+      "targets": [{ "expr": "sum by (reason) (increase(pulsews_dropped_messages_total[5m]))", "legendFormat": "{{reason}}", "refId": "A" }],
+      "title": "Dropped messages by reason",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "pulsews-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
+      "id": 6,
+      "targets": [{ "expr": "sum by (reason) (increase(pulsews_client_event_rejections_total[5m]))", "legendFormat": "{{reason}}", "refId": "A" }],
+      "title": "Client-event rejections",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "pulsews-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
+      "id": 7,
+      "targets": [{ "expr": "sum by (app_id) (increase(pulsews_rest_throttled_total[5m]))", "legendFormat": "{{app_id}}", "refId": "A" }],
+      "title": "REST throttling",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 41,
+  "tags": ["pulsews"],
+  "templating": { "list": [] },
+  "time": { "from": "now-30m", "to": "now" },
+  "timezone": "browser",
+  "title": "PulseWS Overview",
+  "uid": "pulsews-overview",
+  "version": 1
+}

@@ -7,6 +7,7 @@ const EVENT_CHANNEL_PREFIX = "pulsews:events:";
 type AdapterLogger = {
   warn: (details: Record<string, unknown>, message: string) => void;
   error: (details: Record<string, unknown>, message: string) => void;
+  drop?: (reason: string) => void;
 };
 
 type RedisPublisher = {
@@ -77,12 +78,14 @@ export class RedisEventAdapter implements EventAdapter {
     );
 
     this.publisher.on("error", (error) => {
+      this.logger.drop?.("redis_connection_failure");
       this.logger.error(
         { error: error.message, connection: "publisher" },
         "Redis event adapter connection error",
       );
     });
     this.subscriber.on("error", (error) => {
+      this.logger.drop?.("redis_connection_failure");
       this.logger.error(
         { error: error.message, connection: "subscriber" },
         "Redis event adapter connection error",
@@ -107,6 +110,7 @@ export class RedisEventAdapter implements EventAdapter {
       await this.subscriber.subscribe(...this.appIdByRedisChannel.keys());
       this.initialized = true;
     } catch (error) {
+      this.logger.drop?.("redis_connection_failure");
       this.subscriber.removeListener("message", this.handleMessage);
       await closeConnections(this.publisher, this.subscriber);
       this.closed = true;
@@ -140,6 +144,7 @@ export class RedisEventAdapter implements EventAdapter {
       );
       return subscribers > 0;
     } catch (error) {
+      this.logger.drop?.("redis_publish_failure");
       this.logger.error(
         { error: formatError(error), appId: event.appId },
         "Redis event publish failed",
@@ -181,6 +186,7 @@ export class RedisEventAdapter implements EventAdapter {
       try {
         await this.subscriber.unsubscribe(...this.appIdByRedisChannel.keys());
       } catch (error) {
+        this.logger.drop?.("redis_connection_failure");
         this.logger.warn(
           { error: formatError(error) },
           "Unable to unsubscribe Redis event adapter cleanly",
@@ -198,6 +204,7 @@ export class RedisEventAdapter implements EventAdapter {
     const appId = this.appIdByRedisChannel.get(redisChannel);
     const envelope = parseRedisEventEnvelope(rawEnvelope);
     if (!appId || !envelope) {
+      this.logger.drop?.("malformed_redis_envelope");
       this.logger.warn(
         { redisChannel },
         "Dropped malformed Redis event envelope",
@@ -214,6 +221,8 @@ export class RedisEventAdapter implements EventAdapter {
         ? {}
         : { excludeSocket: envelope.excludeSocket }),
       ...(envelope.userId === undefined ? {} : { userId: envelope.userId }),
+      publishedAt: envelope.ts,
+      originNodeId: envelope.nodeId,
     });
   };
 }

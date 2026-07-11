@@ -42,10 +42,12 @@ describe("production container and Compose cluster", () => {
   });
 
   test("configures least-connection WebSocket proxying and monitoring", async () => {
-    const [nginx, prometheus, datasource] = await Promise.all([
+    const [nginx, prometheus, datasource, provider, dashboard] = await Promise.all([
       read("deploy/nginx.conf"),
       read("deploy/prometheus.yml"),
       read("deploy/grafana/provisioning/datasources/prometheus.yml"),
+      read("deploy/grafana/provisioning/dashboards/pulsews.yml"),
+      read("deploy/grafana/provisioning/dashboards/json/pulsews-overview.json"),
     ]);
 
     expect(nginx).toContain("least_conn;");
@@ -54,6 +56,18 @@ describe("production container and Compose cluster", () => {
     expect(prometheus).toContain("pulsews-a:6001");
     expect(prometheus).toContain("pulsews-b:6001");
     expect(datasource).toContain("url: http://prometheus:9090");
+    expect(datasource).toContain("uid: pulsews-prometheus");
+    expect(provider).toContain("/etc/grafana/provisioning/dashboards/json");
+    for (const metric of [
+      "pulsews_connections",
+      "pulsews_messages_total",
+      "pulsews_delivery_latency_seconds_bucket",
+      "pulsews_dropped_messages_total",
+      "pulsews_client_event_rejections_total",
+      "pulsews_rest_throttled_total",
+    ]) {
+      expect(dashboard).toContain(metric);
+    }
   });
 
   test("keeps the mounted secret config out of git", async () => {

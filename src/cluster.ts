@@ -25,6 +25,7 @@ type RedisClusterCommands = {
 type ClusterLogger = {
   warn: (details: Record<string, unknown>, message: string) => void;
   error: (details: Record<string, unknown>, message: string) => void;
+  drop?: (reason: string) => void;
 };
 
 export type ClusterTimingOptions = {
@@ -205,6 +206,7 @@ export class RedisClusterCoordinator implements ConnectionCoordinator {
     );
     this.heartbeatTimer = setInterval(() => {
       void this.refreshHeartbeat().catch((error: unknown) => {
+        this.logger.drop?.("redis_connection_failure");
         this.logger.error(
           { error: formatError(error), nodeId: this.nodeId },
           "Redis node heartbeat failed",
@@ -275,6 +277,7 @@ export class RedisClusterCoordinator implements ConnectionCoordinator {
         }
       }
     } catch (error) {
+      this.logger.drop?.("cluster_cleanup_failure");
       this.logger.error(
         { error: formatError(error), nodeId: this.nodeId },
         "Redis dead-node sweep failed",
@@ -322,6 +325,7 @@ export class RedisClusterCoordinator implements ConnectionCoordinator {
           { nodeId },
           "Dropped malformed Redis node socket record",
         );
+        this.logger.drop?.("malformed_node_socket_record");
         await this.redis.call("SREM", socketsKey, rawRecord);
         continue;
       }
