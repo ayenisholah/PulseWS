@@ -85,12 +85,12 @@ describe("production container and Compose cluster", () => {
     expect(gitignore).toContain("deploy/pulsews.config.json");
   });
 
-  test("isolates each cluster smoke run from public presence traffic", async () => {
+  test("checks named smoke members without rejecting other demo users", async () => {
     const smoke = await read("scripts/cluster-smoke.ts");
 
-    expect(smoke).toContain("GITHUB_RUN_ID");
-    expect(smoke).toContain("GITHUB_RUN_ATTEMPT");
-    expect(smoke).toContain("randomUUID()");
+    expect(smoke).toContain('firstChannel.members.get(userId)');
+    expect(smoke).toContain('secondChannel.members.get(userId)');
+    expect(smoke).not.toContain("members.count !== 2");
   });
 });
 

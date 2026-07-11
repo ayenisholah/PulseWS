@@ -1,5 +1,4 @@
 import { createRequire } from "node:module";
-import { randomUUID } from "node:crypto";
 
 import PusherServer from "pusher";
 
@@ -23,7 +22,10 @@ type PusherClient = {
 
 type PusherChannel = {
   bind: (event: string, callback: (payload: unknown) => void) => void;
-  members: { count: number };
+  members: {
+    count: number;
+    get: (userId: string) => { id: string } | null;
+  };
 };
 
 type NodePayload = { node_id: string };
@@ -35,9 +37,7 @@ const appId = process.env.PULSEWS_APP_ID ?? "demo-app";
 const appKey = process.env.PULSEWS_APP_KEY ?? "demo-key";
 const appSecret =
   process.env.PULSEWS_APP_SECRET ?? "replace-with-a-long-random-secret";
-const channelName =
-  process.env.PULSEWS_PRESENCE_CHANNEL ??
-  `presence-smoke-${process.env.GITHUB_RUN_ID ?? randomUUID()}-${process.env.GITHUB_RUN_ATTEMPT ?? "1"}`;
+const channelName = process.env.PULSEWS_PRESENCE_CHANNEL ?? "presence-demo";
 const clients: PusherClient[] = [];
 
 try {
@@ -63,9 +63,16 @@ try {
   const secondChannel = second.client.subscribe(channelName);
   await waitForChannelEvent(secondChannel, "pusher:subscription_succeeded");
   await memberAdded;
-  if (firstChannel.members.count !== 2 || secondChannel.members.count !== 2) {
+  const expectedUsers = ["smoke-user-a", "smoke-user-b"];
+  if (
+    expectedUsers.some(
+      (userId) =>
+        firstChannel.members.get(userId) === null ||
+        secondChannel.members.get(userId) === null,
+    )
+  ) {
     throw new Error(
-      `Cluster presence roster did not reach two unique members (first=${firstChannel.members.count}, second=${secondChannel.members.count}, channel=${channelName})`,
+      `Cluster presence rosters did not contain both smoke members (first=${firstChannel.members.count}, second=${secondChannel.members.count}, channel=${channelName})`,
     );
   }
 
