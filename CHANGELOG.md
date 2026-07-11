@@ -61,6 +61,12 @@ release.
 - Load acceptance postflight now excludes expected no-local-subscriber fan-out
   observations while still failing on actionable message-drop reasons.
 
+### Measured
+
+- The fixed 500-connection VPS acceptance passed with zero connection,
+  publish, delivery, iteration, or actionable-drop failures; measured latency
+  and environment details are recorded in `docs/loadtest.md`.
+
 ### Changed
 
 - Raised the minimum supported runtime and CI environment from Node 20 to Node
