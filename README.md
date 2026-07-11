@@ -37,7 +37,7 @@ Implemented:
 | Redis heartbeat and dead-node cleanup | Done |
 | Connection caps and REST publish limits | Done |
 | Docker Compose cluster | Done; two-node VPS smoke passed |
-| Prometheus metrics and Grafana dashboard | Implemented; VPS acceptance pending |
+| Prometheus metrics and Grafana dashboard | Implemented and accepted on the VPS |
 | Graceful shutdown and SDK failover | Done; production workflow passed |
 | k6 harness | Implemented; VPS acceptance pending |
 | Measured load-test results | Pending; no estimates published |

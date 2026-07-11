@@ -49,14 +49,22 @@ The resource figures above are postflight snapshots, not peak CPU or peak
 container memory measurements. The Redis peak is reported because Redis
 exposes that value directly.
 
+The live observability acceptance captured the full provisioned dashboard
+during this run: [upper panels](assets/grafana-load-acceptance-top.png),
+[lower panels](assets/grafana-load-acceptance-bottom.png), and
+[both Prometheus targets UP](assets/prometheus-targets-up.png). All ten panels
+rendered without datasource or query errors. The rejection and throttling
+panels correctly had no series because the accepted run recorded neither
+condition.
+
 ## Final capacity run
 
 The stable maximum remains **not yet measured**. Ramp through 1,000, 2,500,
 5,000, 7,500, and 10,000 connections on the target host. Stop when errors,
 CPU, memory, Redis health, actionable drops, or latency become unacceptable.
 
-Store genuine Grafana captures under `docs/assets/` and link them here only
-after the final run. Include the exact k6 command and the stop reason for every tier.
+Replace or supplement the current 500-tier Grafana captures with the final
+capacity-run view. Include the exact k6 command and stop reason for every tier.
 The strict stop condition is any connection/publish failure, dropped message
 or iteration, container restart/OOM, Redis error, sustained host CPU above
 90%, or publish-to-deliver p99 above 40 ms. The last fully passing tier is the

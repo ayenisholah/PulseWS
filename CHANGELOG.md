@@ -66,6 +66,8 @@ release.
 - The fixed 500-connection VPS acceptance passed with zero connection,
   publish, delivery, iteration, or actionable-drop failures; measured latency
   and environment details are recorded in `docs/loadtest.md`.
+- Live VPS evidence confirms both Prometheus targets are healthy and all ten
+  provisioned Grafana panels render during the 500-connection acceptance run.
 
 ### Changed
 
