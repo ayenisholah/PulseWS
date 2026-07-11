@@ -6,7 +6,7 @@ map $http_upgrade $pulsews_connection_upgrade {
 server {
     listen 80;
     listen [::]:80;
-    server_name pulsews.jobrail.xyz;
+    server_name pulsews.sholaayeni.xyz;
 
     client_max_body_size 10k;
 
