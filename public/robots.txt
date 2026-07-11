@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://pulsews.jobrail.xyz/sitemap.xml
+Sitemap: https://pulsews.sholaayeni.xyz/sitemap.xml

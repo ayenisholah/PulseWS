@@ -170,8 +170,7 @@ to be temporary.
 ## Host nginx and TLS domain migration
 
 The official public topology is Docker Compose on localhost behind host nginx
-and Certbot. To migrate `pulsews.jobrail.xyz` to
-`pulsews.sholaayeni.xyz`:
+and Certbot. To configure `pulsews.sholaayeni.xyz` as the public endpoint:
 
 1. Lower the old DNS TTL, create the new A/AAAA records, and verify they point
    to the VPS.

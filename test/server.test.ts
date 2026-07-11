@@ -284,8 +284,8 @@ describe("integrated demo mode", () => {
     expect(socialCard.headers.get("cache-control")).toContain("public");
     expect((await socialCard.arrayBuffer()).byteLength).toBeGreaterThan(100_000);
     await expect(manifest.json()).resolves.toMatchObject({ short_name: "PulseWS" });
-    expect(await robots.text()).toContain("Sitemap: https://pulsews.jobrail.xyz/sitemap.xml");
-    expect(await sitemap.text()).toContain("https://pulsews.jobrail.xyz/");
+    expect(await robots.text()).toContain("Sitemap: https://pulsews.sholaayeni.xyz/sitemap.xml");
+    expect(await sitemap.text()).toContain("https://pulsews.sholaayeni.xyz/");
     await expect(config.json()).resolves.toEqual({
       appKey: "demo-key",
       channel: "presence-demo",

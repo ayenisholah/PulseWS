@@ -5,7 +5,7 @@ defaults are intentionally small; all credentials must refer to the deployed
 app and must be passed through the environment, never committed.
 
 ```sh
-export PULSEWS_URL=https://pulsews.jobrail.xyz
+export PULSEWS_URL=https://pulsews.sholaayeni.xyz
 export PULSEWS_APP_ID=demo-app
 export PULSEWS_APP_KEY=demo-key
 export PULSEWS_APP_SECRET='rotated-secret'

@@ -70,7 +70,7 @@ describe("demo assets", () => {
     ) as { name: string; icons: Array<{ sizes: string }> };
 
     expect(html).toContain(
-      '<link rel="canonical" href="https://pulsews.jobrail.xyz/"',
+      '<link rel="canonical" href="https://pulsews.sholaayeni.xyz/"',
     );
     expect(html).toContain('property="og:image"');
     expect(html).toContain('name="twitter:card" content="summary_large_image"');
