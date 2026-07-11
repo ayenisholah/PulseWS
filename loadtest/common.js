@@ -6,6 +6,7 @@ export const appKey = __ENV.PULSEWS_APP_KEY || "demo-key";
 export const appSecret = __ENV.PULSEWS_APP_SECRET || "change-me";
 export const channelCount = positiveInteger("PULSEWS_CHANNELS", 32);
 export const duration = __ENV.PULSEWS_DURATION || "1m";
+export const channelPrefix = __ENV.PULSEWS_CHANNEL_PREFIX || "load";
 
 export function positiveInteger(name, fallback) {
   const value = Number.parseInt(__ENV[name] || String(fallback), 10);
@@ -20,7 +21,7 @@ export function wsUrl(targetUrl = baseUrl) {
 }
 
 export function channelFor(index) {
-  return `load-${index % channelCount}`;
+  return `${channelPrefix}-${index % channelCount}`;
 }
 
 export function subscribeMessage(channel) {

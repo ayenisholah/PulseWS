@@ -142,6 +142,27 @@ describe("production container and Compose cluster", () => {
     expect(runner).toContain("prometheus-targets.json");
     expect(runner).toContain("Contention disclosure:");
     expect(runner).toContain("postflight || overall_status=1");
+    expect(runner).toContain('--user "$(id -u):$(id -g)"');
+    expect(runner).toContain("connection_headroom");
+    expect(runner).toContain("wait_for_recovery");
+    expect(runner).toContain("drops-by-reason.json");
+    expect(runner).toContain("PULSEWS_CHANNEL_PREFIX");
+  });
+
+  test("prevents connection retry amplification and diagnoses delivery rejects", async () => {
+    const [connections, delivery, common] = await Promise.all([
+      read("loadtest/connection-ramp.js"),
+      read("loadtest/cross-node.js"),
+      read("loadtest/common.js"),
+    ]);
+
+    expect(connections).toContain("let attempted = false");
+    expect(connections).toContain("if (attempted)");
+    expect(connections).toContain("WebSocket upgrade rejected with status");
+    expect(delivery).toContain("pulsews_delivery_publish_failures");
+    expect(delivery).toContain("pulsews_delivery_timeouts");
+    expect(delivery).toContain("Delivery publish rejected: status=");
+    expect(common).toContain('PULSEWS_CHANNEL_PREFIX || "load"');
   });
 });
 

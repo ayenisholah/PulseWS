@@ -9,6 +9,8 @@ const receiveUrl = (__ENV.PULSEWS_NODE_B_URL || "http://127.0.0.1:6003").replace
 const expectedScope = __ENV.PULSEWS_EXPECT_SCOPE || "cross_node";
 
 const failures = new Counter("pulsews_delivery_failures");
+const publishFailures = new Counter("pulsews_delivery_publish_failures");
+const timeouts = new Counter("pulsews_delivery_timeouts");
 const delivery = new Trend("pulsews_delivery_ms", true);
 
 export const options = {
@@ -18,6 +20,8 @@ export const options = {
     dropped_iterations: ["count==0"],
     http_req_failed: ["rate==0"],
     pulsews_delivery_failures: ["count==0"],
+    pulsews_delivery_publish_failures: ["count==0"],
+    pulsews_delivery_timeouts: ["count==0"],
     pulsews_delivery_ms: ["p(99)<40"],
   },
 };
@@ -54,7 +58,11 @@ export default function () {
           publishUrl,
         );
         const publish = http.post(request.url, request.body, { headers: { "Content-Type": "application/json" } });
-        if (publish.status !== 200) failures.add(1);
+        if (publish.status !== 200) {
+          failures.add(1, { phase: "publish", status: String(publish.status) });
+          publishFailures.add(1, { status: String(publish.status) });
+          console.warn(`Delivery publish rejected: status=${publish.status} body=${publish.body}`);
+        }
       }
       if (message.event === "cross-node-load") {
         delivery.add(Date.now() - sentAt);
@@ -66,5 +74,8 @@ export default function () {
     socket.setTimeout(() => socket.close(), positiveInteger("PULSEWS_TIMEOUT_SECONDS", 10) * 1000);
   });
   check(response, { "WebSocket upgraded": (result) => result && result.status === 101 });
-  if (!delivered) failures.add(1);
+  if (!delivered) {
+    failures.add(1, { phase: "delivery_timeout" });
+    timeouts.add(1);
+  }
 }
