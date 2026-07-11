@@ -166,7 +166,7 @@ postflight() {
   capture redis-clients-postflight.txt docker compose -f "$compose_file" exec -T redis redis-cli INFO clients
   capture redis-errors-postflight.txt docker compose -f "$compose_file" logs --since "${run_started_at:-10m}" redis
   capture container-state-postflight.txt docker inspect --format '{{.Name}} restart={{.RestartCount}} oom={{.State.OOMKilled}} status={{.State.Status}}' $(docker compose -f "$compose_file" ps -q)
-  capture dropped-messages-postflight.txt curl --fail --silent --show-error 'http://127.0.0.1:9090/api/v1/query?query=sum%28pulsews_dropped_messages_total%29'
+  capture dropped-messages-postflight.txt curl --fail --silent --show-error 'http://127.0.0.1:9090/api/v1/query?query=sum%28pulsews_dropped_messages_total%7Breason%21%3D%22no_local_subscribers%22%7D%29%20or%20vector%280%29'
   post_state=$(sort "$results_dir/container-state-postflight.txt")
   [[ "$post_state" == "$(sort "$results_dir/container-state-preflight.txt")" ]] || {
     echo 'Container restart, OOM, or status changed during acceptance.'
@@ -206,7 +206,7 @@ capture docker-stats-preflight.txt docker stats --no-stream
 capture redis-memory-preflight.txt docker compose -f "$compose_file" exec -T redis redis-cli INFO memory
 capture redis-clients-preflight.txt docker compose -f "$compose_file" exec -T redis redis-cli INFO clients
 capture container-state-preflight.txt docker inspect --format '{{.Name}} restart={{.RestartCount}} oom={{.State.OOMKilled}} status={{.State.Status}}' $(docker compose -f "$compose_file" ps -q)
-capture dropped-messages-preflight.txt curl --fail --silent --show-error 'http://127.0.0.1:9090/api/v1/query?query=sum%28pulsews_dropped_messages_total%29'
+capture dropped-messages-preflight.txt curl --fail --silent --show-error 'http://127.0.0.1:9090/api/v1/query?query=sum%28pulsews_dropped_messages_total%7Breason%21%3D%22no_local_subscribers%22%7D%29%20or%20vector%280%29'
 prometheus_snapshot preflight
 
 record "docker pull $k6_image"

@@ -56,6 +56,11 @@ release.
   automatic `pusher-js` reconnection through nginx, post-reconnect presence,
   signed delivery to both clients, and successful node restart.
 
+### Fixed
+
+- Load acceptance postflight now excludes expected no-local-subscriber fan-out
+  observations while still failing on actionable message-drop reasons.
+
 ### Changed
 
 - Raised the minimum supported runtime and CI environment from Node 20 to Node

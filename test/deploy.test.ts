@@ -151,6 +151,8 @@ describe("production container and Compose cluster", () => {
     expect(runner).toContain("connection_headroom");
     expect(runner).toContain("wait_for_recovery");
     expect(runner).toContain("drops-by-reason.json");
+    expect(runner.match(/reason%21%3D%22no_local_subscribers%22/g)).toHaveLength(2);
+    expect(runner.match(/%20or%20vector%280%29/g)).toHaveLength(2);
     expect(runner).toContain("PULSEWS_CHANNEL_PREFIX");
     expect(runner).toContain("PULSEWS_CONSUMER_SECONDS=310");
     expect(runner.match(/PULSEWS_PUBLISH_DELAY_MS=250/g)).toHaveLength(2);
