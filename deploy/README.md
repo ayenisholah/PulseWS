@@ -119,3 +119,78 @@ docker compose -f deploy/docker-compose.yml down
 
 Do not add `deploy/pulsews.config.json` to version control. The path is
 gitignored and mounted read-only at `/run/secrets/pulsews.config.json`.
+
+## Graceful failover acceptance
+
+Keep the cluster smoke running, then stop one application container (not
+nginx or Redis):
+
+```sh
+docker compose -f /opt/pulsews/deploy/docker-compose.yml stop pulsews-a
+docker compose -f /opt/pulsews/deploy/docker-compose.yml logs --since=2m pulsews-a pulsews-b nginx
+redis-cli SCARD pulsews:node:pulsews-a:sockets
+```
+
+Clients must receive close code 4200, reconnect through nginx, continue to
+receive signed events, and show the correct presence roster. Restart the node
+after recording evidence. A failed cleanup must produce a non-zero process
+exit status.
+
+## VPS preparation for k6
+
+The load generator and PulseWS currently share the VPS, which must be
+disclosed with every result. Before a run, record the existing values, then
+raise file descriptors and the ephemeral port range for the test session:
+
+```sh
+ulimit -n 200000
+sudo sysctl -w net.ipv4.ip_local_port_range='1024 65535'
+sudo sysctl -w fs.file-max=500000
+docker stats --no-stream
+docker compose -f /opt/pulsews/deploy/docker-compose.yml exec redis redis-cli INFO memory
+docker compose -f /opt/pulsews/deploy/docker-compose.yml exec redis redis-cli INFO clients
+```
+
+Use the commands in `loadtest/README.md`. Monitor `docker stats`, Redis
+memory/clients, Prometheus targets, Grafana latency and drop panels, and host
+CPU throughout the run. Restore sysctl values afterward if they were intended
+to be temporary.
+
+## Host nginx and TLS domain migration
+
+The official public topology is Docker Compose on localhost behind host nginx
+and Certbot. To migrate `pulsews.jobrail.xyz` to
+`pulsews.sholaayeni.xyz`:
+
+1. Lower the old DNS TTL, create the new A/AAAA records, and verify they point
+   to the VPS.
+2. Copy the host nginx vhost, change `server_name`, run `sudo nginx -t`, and
+   reload nginx.
+3. Run `sudo certbot --nginx -d pulsews.sholaayeni.xyz`, then verify `/health`,
+   a WebSocket connection, and the signed cluster smoke over HTTPS.
+4. Keep the old name and certificate active during validation. Roll back by
+   restoring the previous enabled vhost and DNS record, testing nginx, and
+   reloading it.
+
+## Backups, logs, recovery, and rollback
+
+- Back up `/opt/pulsews/deploy/pulsews.config.json`, host nginx configuration,
+  certificate renewal configuration, and named Redis/Grafana/Prometheus
+  volumes. Encrypt backups because the application config contains secrets.
+- Configure Docker log rotation (`max-size` and `max-file`) or journald limits,
+  and test that old logs expire.
+- Pin `PULSEWS_IMAGE` to an immutable GHCR digest before a release. Roll back
+  by restoring the prior digest and running `docker compose pull && docker
+  compose up -d`, then rerun the cluster smoke.
+- Test recovery by restoring configuration and volumes to a disposable host;
+  a backup that has not been restored is not verified.
+
+## Production firewall checklist
+
+Ports 3000 and 9090 may remain public only during the current development
+period. Before production readiness, bind their Compose mappings to
+`127.0.0.1`, remove their public UFW rules, and verify from another machine
+that only SSH, HTTP, and HTTPS are reachable. Use an SSH tunnel for Grafana
+and Prometheus. Rotate any application secret exposed in terminal/chat history
+and update `PULSEWS_APP_SECRET` in the GitHub production environment before
+the final smoke.
