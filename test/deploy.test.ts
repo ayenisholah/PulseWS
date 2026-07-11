@@ -192,6 +192,48 @@ describe("production container and Compose cluster", () => {
     expect(rest).toContain("pulsews_rest_consumer_subscription_failures");
     expect(rest).toContain('pulsews_rest_publish_ms: ["p(99)<1000"]');
   });
+
+  test("provides an automatic stop-on-first-failure measured capacity benchmark", async () => {
+    const [workflow, runner, scenario] = await Promise.all([
+      read(".github/workflows/load-capacity.yml"),
+      read(".github/scripts/run-load-capacity.sh"),
+      read("loadtest/capacity.js"),
+    ]);
+
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("run-load-capacity.sh");
+    expect(workflow).toContain("if: ${{ always() }}");
+    expect(workflow).toContain("actions/upload-artifact@v4");
+    expect(workflow).toContain("npm run smoke:cluster");
+    expect(workflow).toContain("rm -f '/tmp/pulsews-capacity-$RUN_ID.env'");
+    expect(runner).toContain("readonly tiers=(1000 2500 5000 7500 10000)");
+    expect(runner).toContain("readonly required_cap=12000");
+    expect(runner).toContain('required_headroom=10000');
+    expect(runner).toContain('break; fi');
+    expect(runner).toContain("wait_for_recovery");
+    expect(runner).toContain("sleep 5");
+    expect(runner).toContain("overload < 12");
+    expect(runner).toContain("sustained-overload.failed");
+    expect(runner).toContain("k6-summary.json");
+    expect(runner).toContain("image-digests.txt");
+    expect(runner).toContain("host-samples.csv");
+    expect(runner).toContain("container-samples.csv");
+    expect(runner).toContain("prometheus-samples.csv");
+    expect(runner).toContain("not every intended WebSocket upgrade was observed");
+    expect(runner).toContain("not every intended public subscription was observed");
+    expect(runner).toContain("redis-errors.txt");
+    expect(runner).toContain("trap 'stop_sampler; rm -f");
+    expect(runner).toContain("same-node and cross-node delivery series did not both increase");
+    expect(runner).toContain("k6 and PulseWS shared the VPS");
+    expect(scenario).toContain('executor: "ramping-vus"');
+    expect(scenario).toContain('executor: "constant-arrival-rate"');
+    expect(scenario).toContain('PULSEWS_CHANNELS');
+    expect(scenario).toContain('"p(99)<2000"');
+    expect(scenario).toContain('"p(99)<40"');
+    expect(scenario).toContain('dropped_iterations: ["count==0"]');
+    expect(scenario).toContain("sentAt: Date.now()");
+    expect(scenario).toContain("pusher_internal:subscription_succeeded");
+  });
 });
 
 function read(path: string): Promise<string> {
