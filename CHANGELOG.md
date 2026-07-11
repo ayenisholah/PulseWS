@@ -52,6 +52,9 @@ release.
 - VPS Compose acceptance evidence for distinct `pulsews-a`/`pulsews-b`
   routing, shared presence, nginx authorization, and HTTP 200 signed REST
   publishing.
+- Production failover acceptance covering SIGTERM shutdown of `pulsews-a`,
+  automatic `pusher-js` reconnection through nginx, post-reconnect presence,
+  signed delivery to both clients, and successful node restart.
 
 ### Changed
 
