@@ -35,3 +35,7 @@ Record, without estimates:
 
 Store genuine Grafana captures under `docs/assets/` and link them here only
 after the run. Include the exact k6 command and the stop reason for every tier.
+The strict stop condition is any connection/publish failure, dropped message
+or iteration, container restart/OOM, Redis error, sustained host CPU above
+90%, or publish-to-deliver p99 above 40 ms. The last fully passing tier is the
+reported stable maximum.

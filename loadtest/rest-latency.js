@@ -19,6 +19,8 @@ export const options = {
     },
   },
   thresholds: {
+    dropped_iterations: ["count==0"],
+    http_req_failed: ["rate==0"],
     pulsews_rest_failures: ["count==0"],
     pulsews_rest_publish_ms: ["p(99)<1000"],
   },

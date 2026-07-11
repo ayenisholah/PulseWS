@@ -74,7 +74,7 @@ describe("production container and Compose cluster", () => {
       panels?: Array<{ title?: string; datasource?: { uid?: string } }>;
     };
     expect(provisionedDashboard.uid).toBe("pulsews-overview");
-    expect(provisionedDashboard.panels).toHaveLength(7);
+    expect(provisionedDashboard.panels).toHaveLength(10);
     expect(provisionedDashboard.panels?.every(
       (panel) => panel.datasource?.uid === "pulsews-prometheus",
     )).toBe(true);
@@ -85,12 +85,33 @@ describe("production container and Compose cluster", () => {
     expect(gitignore).toContain("deploy/pulsews.config.json");
   });
 
+  test("keeps monitoring and direct node diagnostics on localhost", async () => {
+    const compose = await read("deploy/docker-compose.yml");
+
+    expect(compose).toContain('127.0.0.1:${PULSEWS_NODE_A_PORT:-6002}:6001');
+    expect(compose).toContain('127.0.0.1:${PULSEWS_NODE_B_PORT:-6003}:6001');
+    expect(compose).toContain('127.0.0.1:${PROMETHEUS_PORT:-9090}:9090');
+    expect(compose).toContain('127.0.0.1:${GRAFANA_PORT:-3000}:3000');
+    expect(compose).toContain('max-size: "10m"');
+    expect(compose).toContain('max-file: "5"');
+  });
+
   test("checks named smoke members without rejecting other demo users", async () => {
     const smoke = await read("scripts/cluster-smoke.ts");
 
     expect(smoke).toContain('firstChannel.members.get(userId)');
     expect(smoke).toContain('secondChannel.members.get(userId)');
     expect(smoke).not.toContain("members.count !== 2");
+  });
+
+  test("provides an opt-in production failover gate", async () => {
+    const workflow = await read(".github/workflows/deploy-production.yml");
+
+    expect(workflow).toContain("run_failover:");
+    expect(workflow).toContain('PULSEWS_FAILOVER_TIMEOUT_SECONDS: "45"');
+    expect(workflow).toContain("stop pulsews-a");
+    expect(workflow).toContain("start pulsews-a");
+    expect(workflow).toContain('test "$smoke_status" -eq 0');
   });
 });
 

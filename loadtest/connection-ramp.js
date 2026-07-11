@@ -14,6 +14,7 @@ export const options = {
     { duration: __ENV.PULSEWS_RAMP_DOWN_DURATION || "15s", target: 0 },
   ],
   thresholds: {
+    dropped_iterations: ["count==0"],
     pulsews_ws_failures: ["count==0"],
     pulsews_ws_handshake_ms: ["p(99)<2000"],
   },

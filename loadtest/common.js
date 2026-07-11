@@ -15,8 +15,8 @@ export function positiveInteger(name, fallback) {
   return value;
 }
 
-export function wsUrl() {
-  return `${baseUrl.replace(/^http/, "ws")}/app/${encodeURIComponent(appKey)}?protocol=7&client=k6&version=1.0`;
+export function wsUrl(targetUrl = baseUrl) {
+  return `${targetUrl.replace(/\/$/, "").replace(/^http/, "ws")}/app/${encodeURIComponent(appKey)}?protocol=7&client=k6&version=1.0`;
 }
 
 export function channelFor(index) {
@@ -27,7 +27,7 @@ export function subscribeMessage(channel) {
   return JSON.stringify({ event: "pusher:subscribe", data: { channel } });
 }
 
-export function signedPublish(channel, event, data) {
+export function signedPublish(channel, event, data, targetUrl = baseUrl) {
   const body = JSON.stringify({ name: event, channels: [channel], data: JSON.stringify(data) });
   const path = `/apps/${appId}/events`;
   const query = {
@@ -45,5 +45,5 @@ export function signedPublish(channel, event, data) {
     .sort()
     .map((key) => `${encodeURIComponent(key)}=${encodeURIComponent(query[key])}`)
     .join("&");
-  return { url: `${baseUrl}${path}?${signedQuery}`, body };
+  return { url: `${targetUrl.replace(/\/$/, "")}${path}?${signedQuery}`, body };
 }

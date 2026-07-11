@@ -12,6 +12,11 @@ on:
         required: true
         default: false
         type: boolean
+      run_failover:
+        description: "Stop one node and verify SDK reconnection and delivery"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -59,13 +64,13 @@ jobs:
           "
 
       - uses: actions/setup-node@v4
-        if: ${{ inputs.run_smoke }}
+        if: ${{ inputs.run_smoke || inputs.run_failover }}
         with:
           node-version: 22
           cache: npm
 
       - name: Run cluster smoke
-        if: ${{ inputs.run_smoke }}
+        if: ${{ inputs.run_smoke && inputs.run_failover == false }}
         env:
           PULSEWS_SMOKE_URL: ${{ secrets.PULSEWS_SMOKE_URL }}
           PULSEWS_APP_ID: ${{ secrets.PULSEWS_APP_ID }}
@@ -78,3 +83,27 @@ jobs:
           test -n "$PULSEWS_APP_SECRET"
           npm ci
           npm run smoke:cluster
+
+      - name: Run graceful failover smoke
+        if: ${{ inputs.run_failover }}
+        env:
+          PULSEWS_SMOKE_URL: ${{ secrets.PULSEWS_SMOKE_URL }}
+          PULSEWS_APP_ID: ${{ secrets.PULSEWS_APP_ID }}
+          PULSEWS_APP_KEY: ${{ secrets.PULSEWS_APP_KEY }}
+          PULSEWS_APP_SECRET: ${{ secrets.PULSEWS_APP_SECRET }}
+          PULSEWS_FAILOVER_TIMEOUT_SECONDS: "45"
+        run: |
+          npm ci
+          npm run smoke:cluster > failover-smoke.log 2>&1 &
+          smoke_pid=$!
+          sleep 5
+          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" \
+            "docker compose -f /opt/pulsews/deploy/docker-compose.yml stop pulsews-a"
+          set +e
+          wait "$smoke_pid"
+          smoke_status=$?
+          set -e
+          cat failover-smoke.log
+          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" \
+            "docker compose -f /opt/pulsews/deploy/docker-compose.yml start pulsews-a"
+          test "$smoke_status" -eq 0

@@ -20,6 +20,8 @@ The default endpoints are:
 - PulseWS/nginx: <http://127.0.0.1:8080>
 - Prometheus: <http://127.0.0.1:9090>
 - Grafana: <http://127.0.0.1:3000>
+- PulseWS node A diagnostics: <http://127.0.0.1:6002>
+- PulseWS node B diagnostics: <http://127.0.0.1:6003>
 
 Override host ports with `PULSEWS_HTTP_PORT`, `PROMETHEUS_PORT`, and
 `GRAFANA_PORT`. Set `GF_SECURITY_ADMIN_PASSWORD` before exposing Grafana.
@@ -67,6 +69,10 @@ Deploy from the GitHub Actions UI:
 2. Run `Deploy Production` with `image_tag=edge` and `run_smoke=true`.
 3. Treat a failed smoke job as a failed deployment; inspect the service logs
    before retrying.
+
+For the failover gate, set `run_failover=true`. The workflow keeps two SDK
+clients subscribed, stops `pulsews-a`, requires an automatic reconnect and a
+post-reconnect signed delivery to both clients, and starts the node again.
 
 ## Smoke gate
 
@@ -178,7 +184,8 @@ and Certbot. To migrate `pulsews.jobrail.xyz` to
   certificate renewal configuration, and named Redis/Grafana/Prometheus
   volumes. Encrypt backups because the application config contains secrets.
 - Configure Docker log rotation (`max-size` and `max-file`) or journald limits,
-  and test that old logs expire.
+  and test that old logs expire. Compose defaults to five 10 MiB JSON log
+  files per service.
 - Pin `PULSEWS_IMAGE` to an immutable GHCR digest before a release. Roll back
   by restoring the prior digest and running `docker compose pull && docker
   compose up -d`, then rerun the cluster smoke.

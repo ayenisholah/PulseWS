@@ -39,6 +39,10 @@ const appSecret =
   process.env.PULSEWS_APP_SECRET ?? "replace-with-a-long-random-secret";
 const channelName = process.env.PULSEWS_PRESENCE_CHANNEL ?? "presence-demo";
 const clients: PusherClient[] = [];
+const failoverTimeoutSeconds = Number.parseInt(
+  process.env.PULSEWS_FAILOVER_TIMEOUT_SECONDS ?? "0",
+  10,
+);
 
 try {
   const first = createClient("smoke-user-a", "Smoke A");
@@ -94,6 +98,33 @@ try {
   }
   await Promise.all([eventOnFirst, eventOnSecond]);
 
+  if (failoverTimeoutSeconds > 0) {
+    await waitForCondition(
+      () => first.connectionCount + second.connectionCount >= 3,
+      failoverTimeoutSeconds * 1_000,
+      "Timed out waiting for a client to reconnect during failover",
+    );
+    await waitForCondition(
+      () =>
+        ["smoke-user-a", "smoke-user-b"].every(
+          (userId) =>
+            firstChannel.members.get(userId) !== null &&
+            secondChannel.members.get(userId) !== null,
+        ),
+      10_000,
+      "Presence did not converge after failover",
+    );
+    const failoverOnFirst = waitForChannelEvent(firstChannel, "smoke.failover");
+    const failoverOnSecond = waitForChannelEvent(secondChannel, "smoke.failover");
+    const failoverResponse = await sdk.trigger(channelName, "smoke.failover", {
+      afterReconnect: true,
+    });
+    if (failoverResponse.status !== 200) {
+      throw new Error(`Post-failover REST publish returned HTTP ${failoverResponse.status}`);
+    }
+    await Promise.all([failoverOnFirst, failoverOnSecond]);
+  }
+
   console.log(
     JSON.stringify({
       ok: true,
@@ -106,6 +137,8 @@ try {
       presenceChannel: channelName,
       restPublishStatus: response.status,
       demoAuthorization: "passed through nginx",
+      connectionCount: first.connectionCount + second.connectionCount,
+      failover: failoverTimeoutSeconds > 0 ? "reconnected and delivered" : "not requested",
     }),
   );
 } finally {
@@ -121,6 +154,7 @@ function createClient(
   client: PusherClient;
   connected: Promise<string>;
   node: Promise<string>;
+  readonly connectionCount: number;
 } {
   const secure = baseUrl.protocol === "https:";
   const client = new Pusher(appKey, {
@@ -169,6 +203,11 @@ function createClient(
     },
   });
 
+  let connectionCount = 0;
+  client.connection.bind("connected", () => {
+    connectionCount += 1;
+  });
+
   return {
     client,
     connected: new Promise((resolve, reject) => {
@@ -195,7 +234,23 @@ function createClient(
         resolve(payload.node_id);
       });
     }),
+    get connectionCount() {
+      return connectionCount;
+    },
   };
+}
+
+async function waitForCondition(
+  condition: () => boolean,
+  timeoutMs: number,
+  message: string,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (condition()) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(message);
 }
 
 function waitForChannelEvent(
