@@ -20,6 +20,12 @@ import {
   topicFor,
   validateSubscribableChannelName,
 } from "./channels.js";
+import {
+  type ClusterTimingOptions,
+  type ConnectionCoordinator,
+  LocalConnectionCoordinator,
+  RedisClusterCoordinator,
+} from "./cluster.js";
 import type { AppConfig, PulseWsConfig } from "./config.js";
 import {
   authorizeDemoPresence,
@@ -58,6 +64,7 @@ import { RedisPresenceRegistry } from "./redis-presence.js";
 
 const DEFAULT_ACTIVITY_GRACE_SECONDS = 30;
 const DEFAULT_REAPER_INTERVAL_MILLISECONDS = 1_000;
+export const CONNECTION_LIMIT_ERROR_CODE = 4100;
 
 type SocketData =
   | {
@@ -68,6 +75,7 @@ type SocketData =
       presenceMemberships: Map<string, PresenceMember>;
       clientEventLimiter: TokenBucket;
       subscriptionOperations: Promise<void>;
+      connectionReserved: boolean;
       lastActivityAt: number;
       closed: boolean;
     }
@@ -88,7 +96,7 @@ export type PulseWsServer = {
   close: () => Promise<void>;
 };
 
-export type ServerTimingOptions = {
+export type ServerTimingOptions = ClusterTimingOptions & {
   activityTimeoutSeconds?: number;
   activityGraceSeconds?: number;
   reaperIntervalMilliseconds?: number;
@@ -99,6 +107,7 @@ export async function startServer(
   timing: ServerTimingOptions = {},
 ): Promise<PulseWsServer> {
   const demoAssets = config.demo ? await loadDemoAssets() : undefined;
+  const clusterSize = readClusterSize(process.env.PULSEWS_CLUSTER_SIZE);
   const appsByKey = new Map(config.apps.map((app) => [app.key, app]));
   const appsById = new Map(
     config.apps.map((configuredApp) => [configuredApp.id, configuredApp]),
@@ -122,10 +131,45 @@ export async function startServer(
       )
     : undefined;
   const adapter: EventAdapter = redisAdapter ?? localAdapter;
-  const presence: PresenceRegistry = redisAdapter
+  const redisPresence = redisAdapter
     ? new RedisPresenceRegistry(redisAdapter, nodeId)
-    : new LocalPresenceRegistry();
+    : undefined;
+  const presence: PresenceRegistry =
+    redisPresence ?? new LocalPresenceRegistry();
+  const connections: ConnectionCoordinator =
+    redisAdapter && redisPresence
+      ? new RedisClusterCoordinator(
+          redisAdapter,
+          redisPresence,
+          adapter,
+          nodeId,
+          {
+            warn: (details, message) => logger.warn(details, message),
+            error: (details, message) => logger.error(details, message),
+          },
+          timing,
+        )
+      : new LocalConnectionCoordinator();
   await adapter.initialize();
+  try {
+    await connections.initialize();
+  } catch (error) {
+    await adapter.close();
+    throw error;
+  }
+  const restPublishLimiters = new Map(
+    config.apps.map((configuredApp) => [
+      configuredApp.id,
+      new TokenBucket(
+        Math.max(
+          1,
+          Math.floor(
+            configuredApp.maxRestPublishesPerSecond / clusterSize,
+          ),
+        ),
+      ),
+    ]),
+  );
   const activityTimeoutSeconds =
     timing.activityTimeoutSeconds ?? DEFAULT_ACTIVITY_TIMEOUT_SECONDS;
   const activityGraceSeconds =
@@ -152,6 +196,7 @@ export async function startServer(
                 configuredApp.maxClientEventsPerSecond,
               ),
               subscriptionOperations: Promise.resolve(),
+              connectionReserved: false,
               lastActivityAt: Date.now(),
               closed: false,
             }
@@ -182,18 +227,60 @@ export async function startServer(
         return;
       }
 
-      data.lastActivityAt = Date.now();
-      acceptedSockets.add(ws);
-      acceptedSocketsById.set(
-        data.socketId,
-        ws as uWS.WebSocket<Extract<SocketData, { accepted: true }>>,
-      );
-      ws.send(
-        encodePusherMessage(
-          connectionEstablishedMessage(data.socketId, activityTimeoutSeconds),
-        ),
-      );
-      ws.send(encodePusherMessage(nodeIdentifiedMessage(nodeId)));
+      void connections
+        .reserveConnection(
+          data.app.id,
+          data.socketId,
+          data.app.maxConnections,
+        )
+        .then(async (reserved) => {
+          if (data.closed) {
+            if (reserved) {
+              await connections.releaseConnection(data.app.id, data.socketId);
+            }
+            return;
+          }
+          if (!reserved) {
+            sendError(
+              ws,
+              CONNECTION_LIMIT_ERROR_CODE,
+              "Application connection limit exceeded",
+            );
+            setTimeout(() => {
+              if (!data.closed) {
+                ws.close();
+              }
+            }, 10);
+            return;
+          }
+
+          data.connectionReserved = true;
+          data.lastActivityAt = Date.now();
+          acceptedSockets.add(ws);
+          acceptedSocketsById.set(
+            data.socketId,
+            ws as uWS.WebSocket<Extract<SocketData, { accepted: true }>>,
+          );
+          ws.send(
+            encodePusherMessage(
+              connectionEstablishedMessage(
+                data.socketId,
+                activityTimeoutSeconds,
+              ),
+            ),
+          );
+          ws.send(encodePusherMessage(nodeIdentifiedMessage(nodeId)));
+        })
+        .catch((error: unknown) => {
+          logger.error(
+            { error: formatError(error), appId: data.app.id },
+            "Connection reservation failed",
+          );
+          if (!data.closed) {
+            sendError(ws, 4000, "Connection reservation failed");
+            ws.close();
+          }
+        });
     },
     message: (ws, message) => {
       const data = ws.getUserData();
@@ -252,6 +339,10 @@ export async function startServer(
               await leavePresenceChannel(data, channel, adapter, presence);
             }
             data.presenceMemberships.clear();
+            if (data.connectionReserved) {
+              await connections.releaseConnection(data.app.id, data.socketId);
+              data.connectionReserved = false;
+            }
           })
           .catch((error: unknown) => {
             logger.error(
@@ -342,6 +433,17 @@ export async function startServer(
         return;
       }
 
+      const publishLimiter = restPublishLimiters.get(configuredApp.id);
+      if (!publishLimiter?.tryConsume()) {
+        res.cork(() => {
+          res
+            .writeStatus("429 Too Many Requests")
+            .writeHeader("content-type", "application/json")
+            .end("{}");
+        });
+        return;
+      }
+
       void Promise.all(
         publishRequest.channels.map((channel) =>
           adapter.publish({
@@ -387,6 +489,7 @@ export async function startServer(
   try {
     listenSocket = await listen(app, config.port);
   } catch (error) {
+    await connections.close();
     await adapter.close();
     throw error;
   }
@@ -423,6 +526,7 @@ export async function startServer(
       closePromise ??= (async () => {
         clearInterval(reaper);
         uWS.us_listen_socket_close(listenSocket);
+        await connections.close();
         await adapter.close();
       })();
       return closePromise;
@@ -809,3 +913,14 @@ function formatError(error: unknown): string {
 }
 
 export { APP_NOT_FOUND_CLOSE_CODE, APP_NOT_FOUND_MESSAGE };
+
+export function readClusterSize(rawValue: string | undefined): number {
+  if (rawValue === undefined) {
+    return 1;
+  }
+  const clusterSize = Number(rawValue);
+  if (!Number.isInteger(clusterSize) || clusterSize <= 0) {
+    throw new Error("PULSEWS_CLUSTER_SIZE must be a positive integer");
+  }
+  return clusterSize;
+}

@@ -7,7 +7,8 @@
       "key": "demo-key",
       "secret": "replace-with-a-long-random-secret",
       "maxConnections": 1000,
-      "maxClientEventsPerSecond": 10
+      "maxClientEventsPerSecond": 10,
+      "maxRestPublishesPerSecond": 100
     }
   ],
   "demo": {

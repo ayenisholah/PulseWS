@@ -1,22 +1,26 @@
 import { randomUUID } from "node:crypto";
 
+import { Redis } from "ioredis";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { createPresenceChannelAuth } from "../src/auth.js";
 import type { PulseWsConfig } from "../src/config.js";
 import type { PresenceRoster } from "../src/presence.js";
+import { nodeSocketsKey, presenceKey } from "../src/redis-presence.js";
 import { startServer, type PulseWsServer } from "../src/server.js";
 
 const redisUrl = process.env.PULSEWS_TEST_REDIS_URL;
 const channel = "presence-cluster";
 const servers: PulseWsServer[] = [];
 const sockets: WebSocket[] = [];
+const redisClients: Redis[] = [];
 
 afterEach(async () => {
   for (const socket of sockets.splice(0)) {
     socket.close();
   }
   await Promise.all(servers.splice(0).map((server) => server.close()));
+  await Promise.all(redisClients.splice(0).map((redis) => redis.quit()));
 });
 
 describe.skipIf(!redisUrl)("Redis cluster presence", () => {
@@ -37,6 +41,7 @@ describe.skipIf(!redisUrl)("Redis cluster presence", () => {
             secret: appSecret,
             maxConnections: 100,
             maxClientEventsPerSecond: 10,
+            maxRestPublishesPerSecond: 100,
           },
         ],
       };
@@ -178,6 +183,90 @@ describe.skipIf(!redisUrl)("Redis cluster presence", () => {
       await wait(50);
     },
     20_000,
+  );
+
+  test(
+    "sweeps a dead node's connection and presence records",
+    async () => {
+      const clusterId = randomUUID();
+      const appId = `sweep-${clusterId}`;
+      const appKey = `key-${clusterId}`;
+      const appSecret = `secret-${clusterId}`;
+      const config: PulseWsConfig = {
+        port: 0,
+        redisUrl: requiredRedisUrl(),
+        apps: [
+          {
+            id: appId,
+            key: appKey,
+            secret: appSecret,
+            maxConnections: 100,
+            maxClientEventsPerSecond: 10,
+            maxRestPublishesPerSecond: 100,
+          },
+        ],
+      };
+      const timing = {
+        heartbeatTtlSeconds: 1,
+        heartbeatIntervalMilliseconds: 200,
+        sweepIntervalMilliseconds: 200,
+      };
+      const [nodeA, nodeB] = await Promise.all([
+        startServer(config, timing),
+        startServer(config, timing),
+      ]);
+      servers.push(nodeA, nodeB);
+      const redis = new Redis(requiredRedisUrl());
+      redisClients.push(redis);
+
+      const observer = await connect(nodeB.port, appKey);
+      await subscribePresence(
+        observer,
+        appKey,
+        appSecret,
+        "user-observer",
+        { name: "Observer" },
+      );
+      const deadMember = await connect(nodeA.port, appKey);
+      const memberAdded = waitForMemberEvent(
+        observer.socket,
+        "pusher_internal:member_added",
+        "user-dead",
+      );
+      await subscribePresence(
+        deadMember,
+        appKey,
+        appSecret,
+        "user-dead",
+        { name: "Dead node member" },
+      );
+      await memberAdded;
+
+      const memberRemoved = waitForMemberEvent(
+        observer.socket,
+        "pusher_internal:member_removed",
+        "user-dead",
+      );
+      await nodeA.close();
+      await expect(memberRemoved).resolves.toBeDefined();
+
+      await expect(
+        redis.hget(presenceKey(appId, channel), deadMember.socketId),
+      ).resolves.toBeNull();
+      await expect(redis.smembers(nodeSocketsKey(nodeA.nodeId))).resolves.toEqual(
+        [],
+      );
+      await expect(redis.sismember("pulsews:nodes", nodeA.nodeId)).resolves.toBe(
+        0,
+      );
+      await expect(
+        redis.get(`pulsews:app:${appId}:connections`),
+      ).resolves.toBe("1");
+
+      unsubscribe(observer.socket);
+      await wait(100);
+    },
+    10_000,
   );
 });
 

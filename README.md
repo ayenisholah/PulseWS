@@ -13,8 +13,9 @@ Pre-alpha. The TypeScript scaffold, validated config loading,
 uWebSockets.js handshake, public channels, connection liveness, and the signed
 REST publishing and the single-node MVP are in place, including public,
 private, and presence channels, rate-limited client events, an opt-in live
-browser demo, Redis-backed multi-node event fan-out, and cluster-wide presence
-state. The next step is cluster crash safety and application limits.
+browser demo, Redis-backed multi-node event fan-out, cluster-wide presence,
+dead-node cleanup, connection caps, and REST publish throttling. The next step
+is the production Compose cluster.
 
 Implemented:
 
@@ -32,6 +33,8 @@ Implemented:
 | Presence channels | Done (single node and Redis cluster) |
 | Integrated browser demo | Done |
 | Redis fan-out adapter | Done |
+| Redis heartbeat and dead-node cleanup | Done |
+| Connection caps and REST publish limits | Done |
 | Prometheus metrics and Grafana dashboard | Planned |
 | k6 load-test writeup with measured results | Planned |
 
@@ -94,6 +97,15 @@ With Redis configured, presence membership is stored per app and channel in a
 Redis hash keyed by socket. Lua join and leave operations make unique-user
 rosters and first-join/last-leave events atomic across nodes. Membership
 records include the user identity, user info, and owning node ID.
+
+Redis nodes register a 30-second heartbeat refreshed every 10 seconds and keep
+persistent socket records. A live peer sweeps expired nodes, removes leaked
+presence and connection state atomically, and emits final member-removal
+events. Application connection caps are reserved atomically across nodes.
+
+`maxRestPublishesPerSecond` defaults to 100 for each app. PulseWS divides that
+allowance by `PULSEWS_CLUSTER_SIZE` and enforces the resulting per-node token
+bucket; exhausted requests return HTTP 429 and recover as tokens refill.
 
 The two-node integration test runs when `PULSEWS_TEST_REDIS_URL` is set. CI
 provisions Redis 7 and always runs this gate.

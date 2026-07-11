@@ -39,6 +39,11 @@ release.
 - Redis-backed presence membership with atomic Lua join/leave operations,
   cluster-wide unique-user rosters, cross-node member lifecycle events, and
   async-safe subscribe, unsubscribe, and disconnect handling.
+- Redis node heartbeats, persistent socket bookkeeping, atomic dead-node
+  presence cleanup, cluster-wide connection reservations, and final member
+  removal fan-out after crashes.
+- Configurable REST publish token buckets with HTTP 429 responses and
+  `PULSEWS_CLUSTER_SIZE` per-node allowance division.
 
 ### Changed
 

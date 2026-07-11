@@ -183,6 +183,7 @@ class FakeRedis extends EventEmitter {
       ..._arguments: string[]
     ) => [],
   );
+  readonly call = vi.fn(async (_command: string, ..._arguments: string[]) => 1);
   readonly subscribe = vi.fn(async (..._channels: string[]) => 1);
   readonly unsubscribe = vi.fn(async (..._channels: string[]) => 1);
   readonly quit = vi.fn(async () => {

@@ -17,6 +17,7 @@ describe("Redis presence registry", () => {
       stored("user-2", { name: "Grace" }, "node-b"),
     ]);
     const registry = new RedisPresenceRegistry({ eval: evalScript }, "node-a");
+    const initialRecord = registry.registerSocket("app", "1.1");
 
     await expect(
       registry.join("app", "presence-room", "1.1", member),
@@ -36,13 +37,20 @@ describe("Redis presence registry", () => {
     });
     expect(evalScript).toHaveBeenCalledWith(
       expect.stringContaining("redis.call('HSET'"),
-      1,
+      2,
       presenceKey("app", "presence-room"),
+      "pulsews:node:node-a:sockets",
       "1.1",
       JSON.stringify({
         user_id: "user-1",
         user_info: { name: "Ada" },
         node_id: "node-a",
+      }),
+      initialRecord,
+      JSON.stringify({
+        app_id: "app",
+        socket_id: "1.1",
+        presence_channels: ["presence-room"],
       }),
     );
   });
@@ -57,6 +65,7 @@ describe("Redis presence registry", () => {
       },
       "node-a",
     );
+    registry.registerSocket("app", "1.1");
 
     await expect(
       registry.join("app", "presence-room", "1.1", member),
@@ -72,18 +81,23 @@ describe("Redis presence registry", () => {
       .mockResolvedValueOnce([0])
       .mockResolvedValueOnce([1, stored("user-1", { name: "Ada" }, "node-a")]);
     const registry = new RedisPresenceRegistry({ eval: evalScript }, "node-a");
+    registry.registerSocket("app", "1.1");
 
     await expect(
       registry.leave("app", "presence-room", "1.1"),
     ).resolves.toEqual({ memberRemoved: false });
+    registry.registerSocket("app", "1.2");
     await expect(
       registry.leave("app", "presence-room", "1.2"),
     ).resolves.toEqual({ memberRemoved: true, member });
     expect(evalScript).toHaveBeenLastCalledWith(
       expect.stringContaining("redis.call('HDEL'"),
-      1,
+      2,
       "pulsews:presence:app:presence-room",
+      "pulsews:node:node-a:sockets",
       "1.2",
+      expect.any(String),
+      expect.any(String),
     );
   });
 
@@ -100,6 +114,7 @@ describe("Redis presence registry", () => {
         { eval: vi.fn(async () => result) },
         "node-a",
       );
+      registry.registerSocket("app", "1.1");
       await expect(
         registry.join("app", "presence-room", "1.1", member),
       ).rejects.toThrow();

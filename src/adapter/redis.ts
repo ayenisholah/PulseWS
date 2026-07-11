@@ -18,6 +18,7 @@ type RedisPublisher = {
     numberOfKeys: number,
     ...arguments_: string[]
   ) => Promise<unknown>;
+  call: (command: string, ...arguments_: string[]) => Promise<unknown>;
   quit: () => Promise<unknown>;
   disconnect: () => void;
   on: (event: "error", listener: (error: Error) => void) => unknown;
@@ -160,6 +161,13 @@ export class RedisEventAdapter implements EventAdapter {
       throw new Error("Redis event adapter is not initialized");
     }
     return this.publisher.eval(script, numberOfKeys, ...arguments_);
+  }
+
+  async call(command: string, ...arguments_: string[]): Promise<unknown> {
+    if (!this.initialized || this.closed) {
+      throw new Error("Redis event adapter is not initialized");
+    }
+    return this.publisher.call(command, ...arguments_);
   }
 
   async close(): Promise<void> {

@@ -21,6 +21,12 @@ type StoredPresenceMember = {
   node_id: string;
 };
 
+export type RedisNodeSocketRecord = {
+  app_id: string;
+  socket_id: string;
+  presence_channels: string[];
+};
+
 const JOIN_SCRIPT = `
 local existing = redis.call('HGET', KEYS[1], ARGV[1])
 local joining = cjson.decode(ARGV[2])
@@ -45,6 +51,9 @@ if not existing then
   redis.call('HSET', KEYS[1], ARGV[1], ARGV[2])
 end
 
+redis.call('SREM', KEYS[2], ARGV[3])
+redis.call('SADD', KEYS[2], ARGV[4])
+
 local roster = redis.call('HVALS', KEYS[1])
 local result = {1, member_added}
 for _, value in ipairs(roster) do
@@ -55,6 +64,8 @@ return result
 
 const LEAVE_SCRIPT = `
 local existing = redis.call('HGET', KEYS[1], ARGV[1])
+redis.call('SREM', KEYS[2], ARGV[2])
+redis.call('SADD', KEYS[2], ARGV[3])
 if not existing then
   return {0}
 end
@@ -76,10 +87,31 @@ return {1, existing}
 `;
 
 export class RedisPresenceRegistry implements PresenceRegistry {
+  private readonly socketRecords = new Map<string, RedisNodeSocketRecord>();
+
   constructor(
     private readonly redis: RedisScriptExecutor,
     private readonly nodeId: string,
   ) {}
+
+  registerSocket(appId: string, socketId: string): string {
+    const record = {
+      app_id: appId,
+      socket_id: socketId,
+      presence_channels: [],
+    } satisfies RedisNodeSocketRecord;
+    this.socketRecords.set(socketId, record);
+    return JSON.stringify(record);
+  }
+
+  currentSocketRecord(socketId: string): string | undefined {
+    const record = this.socketRecords.get(socketId);
+    return record ? JSON.stringify(record) : undefined;
+  }
+
+  forgetSocket(socketId: string): void {
+    this.socketRecords.delete(socketId);
+  }
 
   async join(
     appId: string,
@@ -92,12 +124,17 @@ export class RedisPresenceRegistry implements PresenceRegistry {
       user_info: member.userInfo,
       node_id: this.nodeId,
     };
+    const currentRecord = this.requireSocketRecord(appId, socketId);
+    const nextRecord = withPresenceChannel(currentRecord, channel, true);
     const rawResult = await this.redis.eval(
       JOIN_SCRIPT,
-      1,
+      2,
       presenceKey(appId, channel),
+      nodeSocketsKey(this.nodeId),
       socketId,
       JSON.stringify(stored),
+      JSON.stringify(currentRecord),
+      JSON.stringify(nextRecord),
     );
     const result = readScriptArray(rawResult, "join");
     if (result[0] === 0) {
@@ -112,6 +149,7 @@ export class RedisPresenceRegistry implements PresenceRegistry {
     if (result[0] !== 1 || (result[1] !== 0 && result[1] !== 1)) {
       throw new Error("Redis presence join returned an invalid result");
     }
+    this.socketRecords.set(socketId, nextRecord);
 
     return {
       ok: true,
@@ -125,13 +163,19 @@ export class RedisPresenceRegistry implements PresenceRegistry {
     channel: string,
     socketId: string,
   ): Promise<PresenceLeaveResult> {
+    const currentRecord = this.requireSocketRecord(appId, socketId);
+    const nextRecord = withPresenceChannel(currentRecord, channel, false);
     const rawResult = await this.redis.eval(
       LEAVE_SCRIPT,
-      1,
+      2,
       presenceKey(appId, channel),
+      nodeSocketsKey(this.nodeId),
       socketId,
+      JSON.stringify(currentRecord),
+      JSON.stringify(nextRecord),
     );
     const result = readScriptArray(rawResult, "leave");
+    this.socketRecords.set(socketId, nextRecord);
     if (result[0] === 0) {
       return { memberRemoved: false };
     }
@@ -144,10 +188,72 @@ export class RedisPresenceRegistry implements PresenceRegistry {
       member: { userId: stored.user_id, userInfo: stored.user_info },
     };
   }
+
+  private requireSocketRecord(
+    appId: string,
+    socketId: string,
+  ): RedisNodeSocketRecord {
+    const record = this.socketRecords.get(socketId);
+    if (!record || record.app_id !== appId) {
+      throw new Error("Redis presence socket is not registered to this node");
+    }
+    return record;
+  }
 }
 
 export function presenceKey(appId: string, channel: string): string {
   return `pulsews:presence:${appId}:${channel}`;
+}
+
+export function nodeSocketsKey(nodeId: string): string {
+  return `pulsews:node:${nodeId}:sockets`;
+}
+
+export function parseRedisNodeSocketRecord(
+  rawRecord: string,
+): RedisNodeSocketRecord | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawRecord);
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return undefined;
+  }
+  const record = parsed as Record<string, unknown>;
+  if (
+    typeof record.app_id !== "string" ||
+    record.app_id.length === 0 ||
+    typeof record.socket_id !== "string" ||
+    record.socket_id.length === 0 ||
+    !Array.isArray(record.presence_channels) ||
+    record.presence_channels.some((channel) => typeof channel !== "string")
+  ) {
+    return undefined;
+  }
+  return {
+    app_id: record.app_id,
+    socket_id: record.socket_id,
+    presence_channels: record.presence_channels as string[],
+  };
+}
+
+function withPresenceChannel(
+  record: RedisNodeSocketRecord,
+  channel: string,
+  present: boolean,
+): RedisNodeSocketRecord {
+  const channels = new Set(record.presence_channels);
+  if (present) {
+    channels.add(channel);
+  } else {
+    channels.delete(channel);
+  }
+  return {
+    ...record,
+    presence_channels: [...channels].sort(),
+  };
 }
 
 function createRoster(rawMembers: unknown[]): PresenceRoster {

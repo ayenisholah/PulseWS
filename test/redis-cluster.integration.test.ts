@@ -38,6 +38,7 @@ describe.skipIf(!redisUrl)("Redis cluster event fan-out", () => {
             secret: appSecret,
             maxConnections: 100,
             maxClientEventsPerSecond: 10,
+            maxRestPublishesPerSecond: 100,
           },
         ],
       };
@@ -123,6 +124,55 @@ describe.skipIf(!redisUrl)("Redis cluster event fan-out", () => {
     },
     15_000,
   );
+
+  test(
+    "enforces a cluster-wide connection cap and releases clean disconnects",
+    async () => {
+      const clusterId = randomUUID();
+      const appId = `cap-${clusterId}`;
+      const appKey = `key-${clusterId}`;
+      const config: PulseWsConfig = {
+        port: 0,
+        redisUrl: requiredRedisUrl(),
+        apps: [
+          {
+            id: appId,
+            key: appKey,
+            secret: `secret-${clusterId}`,
+            maxConnections: 1,
+            maxClientEventsPerSecond: 10,
+            maxRestPublishesPerSecond: 100,
+          },
+        ],
+      };
+      const [nodeA, nodeB] = await Promise.all([
+        startServer(config),
+        startServer(config),
+      ]);
+      servers.push(nodeA, nodeB);
+      const redis = new Redis(requiredRedisUrl());
+      redisClients.push(redis);
+
+      const first = await connectRawClient(nodeA.port, appKey);
+      await expect(
+        waitForRedisConnectionCount(redis, appId, "1"),
+      ).resolves.toBeUndefined();
+
+      const refusedSocket = openRawSocket(nodeB.port, appKey);
+      const refused = await waitForEvent(refusedSocket, "pusher:error");
+      expect(JSON.parse(String(refused.data))).toMatchObject({ code: 4100 });
+
+      const firstClosed = waitForClose(first.socket);
+      first.socket.close();
+      await firstClosed;
+      await expect(
+        waitForRedisConnectionCount(redis, appId, null),
+      ).resolves.toBeUndefined();
+
+      await expect(connectRawClient(nodeB.port, appKey)).resolves.toBeDefined();
+    },
+    15_000,
+  );
 });
 
 function requiredRedisUrl(): string {
@@ -152,10 +202,7 @@ async function connectRawClient(
   port: number,
   appKey: string,
 ): Promise<{ socket: WebSocket; socketId: string; nodeId: string }> {
-  const socket = new WebSocket(
-    `ws://127.0.0.1:${port}/app/${appKey}?protocol=7&client=js&version=8.5.0`,
-  );
-  sockets.push(socket);
+  const socket = openRawSocket(port, appKey);
 
   return new Promise((resolve, reject) => {
     let socketId: string | undefined;
@@ -186,6 +233,14 @@ async function connectRawClient(
       reject(new Error("Redis test WebSocket connection failed"));
     });
   });
+}
+
+function openRawSocket(port: number, appKey: string): WebSocket {
+  const socket = new WebSocket(
+    `ws://127.0.0.1:${port}/app/${appKey}?protocol=7&client=js&version=8.5.0`,
+  );
+  sockets.push(socket);
+  return socket;
 }
 
 async function subscribe(socket: WebSocket, channel: string): Promise<void> {
@@ -237,4 +292,32 @@ function waitForOptionalEvent(
 
 function wait(timeoutMilliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, timeoutMilliseconds));
+}
+
+function waitForClose(socket: WebSocket): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(
+      () => reject(new Error("Timed out waiting for Redis test socket close")),
+      3_000,
+    );
+    socket.addEventListener("close", () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+  });
+}
+
+async function waitForRedisConnectionCount(
+  redis: Redis,
+  appId: string,
+  expected: string | null,
+): Promise<void> {
+  const deadline = Date.now() + 3_000;
+  while (Date.now() < deadline) {
+    if ((await redis.get(`pulsews:app:${appId}:connections`)) === expected) {
+      return;
+    }
+    await wait(25);
+  }
+  throw new Error(`Timed out waiting for Redis connection count ${expected}`);
 }

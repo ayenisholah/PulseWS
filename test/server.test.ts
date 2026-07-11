@@ -15,6 +15,8 @@ import type { PulseWsConfig } from "../src/config.js";
 import { MAX_INGRESS_BYTES } from "../src/publish.js";
 import {
   APP_NOT_FOUND_CLOSE_CODE,
+  CONNECTION_LIMIT_ERROR_CODE,
+  readClusterSize,
   startServer,
   type PulseWsServer,
   type ServerTimingOptions,
@@ -59,6 +61,7 @@ const testConfig: PulseWsConfig = {
       secret: "demo-secret",
       maxConnections: 100,
       maxClientEventsPerSecond: 10,
+      maxRestPublishesPerSecond: 100,
     },
   ],
 };
@@ -116,6 +119,33 @@ describe("uWS server handshake", () => {
     expect(JSON.parse(String(identified.data))).toEqual({
       node_id: server.nodeId,
     });
+  });
+
+  test("refuses connections over the app cap and releases clean disconnects", async () => {
+    const server = await startServer({
+      ...testConfig,
+      apps: testConfig.apps.map((app) => ({ ...app, maxConnections: 1 })),
+    });
+    servers.push(server);
+    const first = await connectRawSocket(server.port);
+    const second = openRawSocket(server.port);
+    const unexpectedEstablished = waitForOptionalRawEvent(
+      second,
+      "pusher:connection_established",
+      100,
+    );
+    const refused = await waitForRawEvent(second, "pusher:error");
+    expect(JSON.parse(String(refused.data))).toMatchObject({
+      code: CONNECTION_LIMIT_ERROR_CODE,
+    });
+    await expect(unexpectedEstablished).resolves.toBeUndefined();
+
+    const firstClosed = waitForRawClose(first);
+    first.close();
+    await firstClosed;
+    await wait(25);
+
+    await expect(connectRawSocket(server.port)).resolves.toBeDefined();
   });
 });
 
@@ -831,6 +861,52 @@ describe("signed REST publish authentication", () => {
     );
     expect(healthyResponse.status).toBe(200);
   });
+
+  test("divides REST allowance by cluster size, returns 429, and recovers", async () => {
+    const previousClusterSize = process.env.PULSEWS_CLUSTER_SIZE;
+    process.env.PULSEWS_CLUSTER_SIZE = "2";
+    let server: PulseWsServer;
+    try {
+      server = await startServer({
+        ...testConfig,
+        apps: testConfig.apps.map((app) => ({
+          ...app,
+          maxRestPublishesPerSecond: 4,
+        })),
+      });
+    } finally {
+      if (previousClusterSize === undefined) {
+        delete process.env.PULSEWS_CLUSTER_SIZE;
+      } else {
+        process.env.PULSEWS_CLUSTER_SIZE = previousClusterSize;
+      }
+    }
+    servers.push(server);
+    const sdk = createServerSdk(server.port);
+
+    expect((await sdk.trigger("public-rate", "one", {})).status).toBe(200);
+    expect((await sdk.trigger("public-rate", "two", {})).status).toBe(200);
+    await expect(
+      sdk.trigger("public-rate", "three", {}),
+    ).rejects.toMatchObject({ status: 429 });
+
+    await wait(550);
+    expect((await sdk.trigger("public-rate", "recovered", {})).status).toBe(
+      200,
+    );
+  });
+});
+
+describe("cluster sizing", () => {
+  test("defaults to one and validates positive integer overrides", () => {
+    expect(readClusterSize(undefined)).toBe(1);
+    expect(readClusterSize("3")).toBe(3);
+    for (const invalid of ["0", "-1", "1.5", "not-a-number"]) {
+      expect(() => readClusterSize(invalid)).toThrow(
+        "PULSEWS_CLUSTER_SIZE must be a positive integer",
+      );
+    }
+  });
 });
 
 async function startTestServer(
@@ -861,10 +937,7 @@ async function startTestAuthServer(): Promise<RunningAuthServer> {
 }
 
 function connectRawSocket(port: number): Promise<WebSocket> {
-  const socket = new WebSocket(
-    `ws://127.0.0.1:${port}/app/demo-key?protocol=7&client=js&version=8.5.0`,
-  );
-  rawSockets.push(socket);
+  const socket = openRawSocket(port);
 
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -891,6 +964,14 @@ function connectRawSocket(port: number): Promise<WebSocket> {
       reject(new Error("Raw WebSocket connection failed"));
     });
   });
+}
+
+function openRawSocket(port: number): WebSocket {
+  const socket = new WebSocket(
+    `ws://127.0.0.1:${port}/app/demo-key?protocol=7&client=js&version=8.5.0`,
+  );
+  rawSockets.push(socket);
+  return socket;
 }
 
 async function subscribeRawPresence(

@@ -15,6 +15,11 @@ const appConfigSchema = z
       .number()
       .int("maxClientEventsPerSecond must be an integer")
       .positive("maxClientEventsPerSecond must be positive"),
+    maxRestPublishesPerSecond: z
+      .number()
+      .int("maxRestPublishesPerSecond must be an integer")
+      .positive("maxRestPublishesPerSecond must be positive")
+      .default(100),
   })
   .strict();
 

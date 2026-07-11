@@ -16,6 +16,7 @@ const validConfig = {
       secret: "demo-secret",
       maxConnections: 1000,
       maxClientEventsPerSecond: 10,
+      maxRestPublishesPerSecond: 100,
     },
   ],
 };
@@ -23,6 +24,15 @@ const validConfig = {
 describe("config loader", () => {
   test("parses a valid config object", () => {
     expect(parseConfig(validConfig)).toEqual(validConfig);
+  });
+
+  test("defaults the optional REST publish allowance to 100 per second", () => {
+    const app = { ...validConfig.apps[0] };
+    delete (app as Partial<typeof app>).maxRestPublishesPerSecond;
+
+    expect(parseConfig({ ...validConfig, apps: [app] }).apps[0]).toMatchObject({
+      maxRestPublishesPerSecond: 100,
+    });
   });
 
   test("accepts an opt-in demo for a configured app and presence channel", () => {
