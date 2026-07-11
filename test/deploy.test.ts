@@ -202,6 +202,8 @@ describe("production container and Compose cluster", () => {
 
     expect(workflow).toContain("workflow_dispatch:");
     expect(workflow).toContain("run-load-capacity.sh");
+    expect(workflow).toContain('run_id="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"');
+    expect(workflow).toContain("pulsews-capacity-$run_id.env");
     expect(workflow).toContain("if: ${{ always() }}");
     expect(workflow).toContain("actions/upload-artifact@v4");
     expect(workflow).toContain("npm run smoke:cluster");

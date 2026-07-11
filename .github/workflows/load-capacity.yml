@@ -48,12 +48,13 @@ jobs:
           printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
       - name: Upload capacity harness and credentials
         run: |
-          echo "RUN_ID=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_ENV"
+          run_id="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "RUN_ID=$run_id" >> "$GITHUB_ENV"
           tar -czf "$RUNNER_TEMP/load-capacity.tgz" loadtest .github/scripts/run-load-capacity.sh
           umask 077
           printf 'PULSEWS_URL=%s\nPULSEWS_APP_ID=%s\nPULSEWS_APP_KEY=%s\nPULSEWS_APP_SECRET=%s\n' "$PULSEWS_SMOKE_URL" "$PULSEWS_APP_ID" "$PULSEWS_APP_KEY" "$PULSEWS_APP_SECRET" > "$RUNNER_TEMP/pulsews-capacity.env"
           scp "$RUNNER_TEMP/load-capacity.tgz" "$RUNNER_TEMP/pulsews-capacity.env" "$VPS_USER@$VPS_HOST:/tmp/"
-          ssh "$VPS_USER@$VPS_HOST" "mkdir -p /opt/pulsews/load-results/$RUN_ID && tar -xzf /tmp/load-capacity.tgz -C /opt/pulsews && install -m 600 /tmp/pulsews-capacity.env /tmp/pulsews-capacity-$RUN_ID.env"
+          ssh "$VPS_USER@$VPS_HOST" "mkdir -p /opt/pulsews/load-results/$run_id && tar -xzf /tmp/load-capacity.tgz -C /opt/pulsews && install -m 600 /tmp/pulsews-capacity.env /tmp/pulsews-capacity-$run_id.env"
       - name: Run automatic capacity tiers
         run: ssh "$VPS_USER@$VPS_HOST" "GITHUB_SHA='$GITHUB_SHA' bash /opt/pulsews/.github/scripts/run-load-capacity.sh '/opt/pulsews/load-results/$RUN_ID' '/tmp/pulsews-capacity-$RUN_ID.env' '$PULSEWS_IMAGE'"
       - name: Download and validate evidence
