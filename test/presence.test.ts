@@ -28,12 +28,14 @@ describe("presence channel data", () => {
 });
 
 describe("local presence registry", () => {
-  test("builds unique-user rosters across multiple sockets", () => {
+  test("builds unique-user rosters across multiple sockets", async () => {
     const registry = new LocalPresenceRegistry();
     const ada = { userId: "user-1", userInfo: { name: "Ada" } };
     const grace = { userId: "user-2", userInfo: { name: "Grace" } };
 
-    expect(registry.join("app", "presence-room", "1.1", ada)).toEqual({
+    await expect(
+      registry.join("app", "presence-room", "1.1", ada),
+    ).resolves.toEqual({
       ok: true,
       memberAdded: true,
       roster: {
@@ -44,56 +46,62 @@ describe("local presence registry", () => {
         },
       },
     });
-    expect(
+    await expect(
       registry.join("app", "presence-room", "1.2", {
         userId: "user-1",
         userInfo: { name: "Ignored duplicate" },
       }),
-    ).toMatchObject({
+    ).resolves.toMatchObject({
       ok: true,
       memberAdded: false,
       roster: { presence: { count: 1 } },
     });
-    expect(
+    await expect(
       registry.join("app", "presence-room", "2.1", grace),
-    ).toMatchObject({
+    ).resolves.toMatchObject({
       ok: true,
       memberAdded: true,
       roster: { presence: { count: 2 } },
     });
   });
 
-  test("emits removal only when the final socket leaves", () => {
+  test("emits removal only when the final socket leaves", async () => {
     const registry = new LocalPresenceRegistry();
     const member = { userId: "user-1", userInfo: { name: "Ada" } };
-    registry.join("app", "presence-room", "1.1", member);
-    registry.join("app", "presence-room", "1.2", member);
+    await registry.join("app", "presence-room", "1.1", member);
+    await registry.join("app", "presence-room", "1.2", member);
 
-    expect(registry.leave("app", "presence-room", "1.1")).toEqual({
+    await expect(
+      registry.leave("app", "presence-room", "1.1"),
+    ).resolves.toEqual({
       memberRemoved: false,
     });
-    expect(registry.leave("app", "presence-room", "1.2")).toEqual({
+    await expect(
+      registry.leave("app", "presence-room", "1.2"),
+    ).resolves.toEqual({
       memberRemoved: true,
       member,
     });
-    expect(registry.leave("app", "presence-room", "1.2")).toEqual({
+    await expect(
+      registry.leave("app", "presence-room", "1.2"),
+    ).resolves.toEqual({
       memberRemoved: false,
     });
   });
 
-  test("is idempotent for one identity and rejects identity changes", () => {
+  test("is idempotent for one identity and rejects identity changes", async () => {
     const registry = new LocalPresenceRegistry();
     const member = { userId: "user-1", userInfo: {} };
-    registry.join("app", "presence-room", "1.1", member);
+    await registry.join("app", "presence-room", "1.1", member);
 
-    expect(
+    await expect(
       registry.join("app", "presence-room", "1.1", member),
-    ).toMatchObject({ ok: true, memberAdded: false });
-    expect(
+    ).resolves.toMatchObject({ ok: true, memberAdded: false });
+    await expect(
       registry.join("app", "presence-room", "1.1", {
         userId: "user-2",
         userInfo: {},
       }),
-    ).toMatchObject({ ok: false });
+    ).resolves.toMatchObject({ ok: false });
   });
 });

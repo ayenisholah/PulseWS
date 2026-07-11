@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import pino from "pino";
+import pino, { type Logger } from "pino";
 import uWS, { type us_listen_socket } from "uWebSockets.js";
 
 import {
@@ -51,8 +51,10 @@ import {
   LocalPresenceRegistry,
   parsePresenceChannelData,
   type PresenceMember,
+  type PresenceRegistry,
 } from "./presence.js";
 import { TokenBucket } from "./ratelimit.js";
+import { RedisPresenceRegistry } from "./redis-presence.js";
 
 const DEFAULT_ACTIVITY_GRACE_SECONDS = 30;
 const DEFAULT_REAPER_INTERVAL_MILLISECONDS = 1_000;
@@ -65,6 +67,7 @@ type SocketData =
       subscriptions: Set<string>;
       presenceMemberships: Map<string, PresenceMember>;
       clientEventLimiter: TokenBucket;
+      subscriptionOperations: Promise<void>;
       lastActivityAt: number;
       closed: boolean;
     }
@@ -103,11 +106,10 @@ export async function startServer(
   const app = uWS.App();
   const acceptedSockets = new Set<uWS.WebSocket<SocketData>>();
   const acceptedSocketsById = new Map<string, LocalEventSocket>();
-  const presence = new LocalPresenceRegistry();
   const nodeId = randomUUID();
   const logger = pino();
   const localAdapter = new LocalEventAdapter(app, acceptedSocketsById);
-  const adapter: EventAdapter = config.redisUrl
+  const redisAdapter = config.redisUrl
     ? new RedisEventAdapter(
         config.redisUrl,
         config.apps.map((configuredApp) => configuredApp.id),
@@ -118,7 +120,11 @@ export async function startServer(
           error: (details, message) => logger.error(details, message),
         },
       )
-    : localAdapter;
+    : undefined;
+  const adapter: EventAdapter = redisAdapter ?? localAdapter;
+  const presence: PresenceRegistry = redisAdapter
+    ? new RedisPresenceRegistry(redisAdapter, nodeId)
+    : new LocalPresenceRegistry();
   await adapter.initialize();
   const activityTimeoutSeconds =
     timing.activityTimeoutSeconds ?? DEFAULT_ACTIVITY_TIMEOUT_SECONDS;
@@ -145,6 +151,7 @@ export async function startServer(
               clientEventLimiter: new TokenBucket(
                 configuredApp.maxClientEventsPerSecond,
               ),
+              subscriptionOperations: Promise.resolve(),
               lastActivityAt: Date.now(),
               closed: false,
             }
@@ -209,12 +216,20 @@ export async function startServer(
       }
 
       if (clientMessage.event === "pusher:subscribe") {
-        handleSubscribe(ws, clientMessage.data, adapter, presence);
+        enqueueSubscriptionOperation(
+          ws,
+          () => handleSubscribe(ws, clientMessage.data, adapter, presence),
+          logger,
+        );
         return;
       }
 
       if (clientMessage.event === "pusher:unsubscribe") {
-        handleUnsubscribe(ws, clientMessage.data, adapter, presence);
+        enqueueSubscriptionOperation(
+          ws,
+          () => handleUnsubscribe(ws, clientMessage.data, adapter, presence),
+          logger,
+        );
         return;
       }
 
@@ -230,11 +245,20 @@ export async function startServer(
         if (acceptedSocketsById.get(data.socketId) === ws) {
           acceptedSocketsById.delete(data.socketId);
         }
-        for (const channel of data.presenceMemberships.keys()) {
-          leavePresenceChannel(data, channel, adapter, presence);
-        }
-        data.presenceMemberships.clear();
         data.subscriptions.clear();
+        void data.subscriptionOperations
+          .then(async () => {
+            for (const channel of data.presenceMemberships.keys()) {
+              await leavePresenceChannel(data, channel, adapter, presence);
+            }
+            data.presenceMemberships.clear();
+          })
+          .catch((error: unknown) => {
+            logger.error(
+              { error: formatError(error), socketId: data.socketId },
+              "Presence disconnect cleanup failed",
+            );
+          });
       }
     },
   });
@@ -505,22 +529,22 @@ function listen(app: uWS.TemplatedApp, port: number): Promise<us_listen_socket> 
   });
 }
 
-function handleSubscribe(
+async function handleSubscribe(
   ws: uWS.WebSocket<SocketData>,
   payload: unknown,
   adapter: EventAdapter,
-  presence: LocalPresenceRegistry,
-): void {
+  presence: PresenceRegistry,
+): Promise<void> {
+  const data = ws.getUserData();
+  if (!data.accepted || data.closed) {
+    return;
+  }
+
   const subscription = readSubscriptionFromPayload(payload);
   const validation = validateSubscribableChannelName(subscription?.channel);
 
   if (!validation.ok) {
     sendError(ws, 4000, validation.reason);
-    return;
-  }
-
-  const data = ws.getUserData();
-  if (!data.accepted) {
     return;
   }
 
@@ -559,27 +583,44 @@ function handleSubscribe(
       return;
     }
 
-    const joined = presence.join(
+    const joined = await presence.join(
       data.app.id,
       validation.channel,
       data.socketId,
       presenceMember,
     );
+    if (data.closed) {
+      await presence.leave(data.app.id, validation.channel, data.socketId);
+      return;
+    }
     if (!joined.ok) {
       sendError(ws, 4000, joined.reason);
       return;
     }
 
     if (joined.memberAdded) {
-      void adapter.publish({
-        appId: data.app.id,
-        channel: validation.channel,
-        event: "pusher_internal:member_added",
-        data: encodePusherData({
-          user_id: presenceMember.userId,
-          user_info: presenceMember.userInfo,
-        }),
-      }).catch(() => undefined);
+      try {
+        await adapter.publish({
+          appId: data.app.id,
+          channel: validation.channel,
+          event: "pusher_internal:member_added",
+          data: encodePusherData({
+            user_id: presenceMember.userId,
+            user_info: presenceMember.userInfo,
+          }),
+          excludeSocket: data.socketId,
+        });
+      } catch (error) {
+        await presence.leave(data.app.id, validation.channel, data.socketId);
+        throw error;
+      }
+      if (data.closed) {
+        await leavePresenceChannel(data, validation.channel, adapter, presence);
+        return;
+      }
+    } else if (data.closed) {
+      await presence.leave(data.app.id, validation.channel, data.socketId);
+      return;
     }
 
     const topic = topicFor(data.app.id, validation.channel);
@@ -602,12 +643,17 @@ function handleSubscribe(
   );
 }
 
-function handleUnsubscribe(
+async function handleUnsubscribe(
   ws: uWS.WebSocket<SocketData>,
   payload: unknown,
   adapter: EventAdapter,
-  presence: LocalPresenceRegistry,
-): void {
+  presence: PresenceRegistry,
+): Promise<void> {
+  const data = ws.getUserData();
+  if (!data.accepted || data.closed) {
+    return;
+  }
+
   const channel = readChannelFromPayload(payload);
   const validation = validateSubscribableChannelName(channel);
 
@@ -616,15 +662,10 @@ function handleUnsubscribe(
     return;
   }
 
-  const data = ws.getUserData();
-  if (!data.accepted) {
-    return;
-  }
-
   ws.unsubscribe(topicFor(data.app.id, validation.channel));
   data.subscriptions.delete(validation.channel);
   if (validation.type === "presence") {
-    leavePresenceChannel(data, validation.channel, adapter, presence);
+    await leavePresenceChannel(data, validation.channel, adapter, presence);
     data.presenceMemberships.delete(validation.channel);
   }
 }
@@ -673,23 +714,50 @@ function handleClientEvent(
   }).catch(() => undefined);
 }
 
-function leavePresenceChannel(
+async function leavePresenceChannel(
   data: Extract<SocketData, { accepted: true }>,
   channel: string,
   adapter: EventAdapter,
-  presence: LocalPresenceRegistry,
-): void {
-  const left = presence.leave(data.app.id, channel, data.socketId);
+  presence: PresenceRegistry,
+): Promise<void> {
+  const left = await presence.leave(data.app.id, channel, data.socketId);
   if (!left.memberRemoved || !left.member) {
     return;
   }
 
-  void adapter.publish({
+  await adapter.publish({
     appId: data.app.id,
     channel,
     event: "pusher_internal:member_removed",
     data: encodePusherData({ user_id: left.member.userId }),
-  }).catch(() => undefined);
+  });
+}
+
+function enqueueSubscriptionOperation(
+  ws: uWS.WebSocket<SocketData>,
+  operation: () => Promise<void>,
+  logger: Logger,
+): void {
+  const data = ws.getUserData();
+  if (!data.accepted || data.closed) {
+    return;
+  }
+
+  data.subscriptionOperations = data.subscriptionOperations
+    .then(async () => {
+      if (!data.closed) {
+        await operation();
+      }
+    })
+    .catch((error: unknown) => {
+      logger.error(
+        { error: formatError(error), socketId: data.socketId },
+        "Subscription operation failed",
+      );
+      if (!data.closed) {
+        sendError(ws, 4000, "Subscription operation failed");
+      }
+    });
 }
 
 function readSubscriptionFromPayload(
@@ -730,6 +798,9 @@ function sendError(
   code: number,
   message: string,
 ): void {
+  if (ws.getUserData().closed) {
+    return;
+  }
   ws.send(encodePusherMessage(errorMessage(code, message)));
 }
 

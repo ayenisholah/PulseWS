@@ -13,6 +13,11 @@ type RedisPublisher = {
   status: string;
   connect: () => Promise<void>;
   publish: (channel: string, message: string) => Promise<number>;
+  eval: (
+    script: string,
+    numberOfKeys: number,
+    ...arguments_: string[]
+  ) => Promise<unknown>;
   quit: () => Promise<unknown>;
   disconnect: () => void;
   on: (event: "error", listener: (error: Error) => void) => unknown;
@@ -144,6 +149,17 @@ export class RedisEventAdapter implements EventAdapter {
 
   receive(event: EventPublish): boolean {
     return this.local.receive(event);
+  }
+
+  async eval(
+    script: string,
+    numberOfKeys: number,
+    ...arguments_: string[]
+  ): Promise<unknown> {
+    if (!this.initialized || this.closed) {
+      throw new Error("Redis event adapter is not initialized");
+    }
+    return this.publisher.eval(script, numberOfKeys, ...arguments_);
   }
 
   async close(): Promise<void> {

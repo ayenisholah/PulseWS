@@ -176,6 +176,13 @@ class FakeRedis extends EventEmitter {
     this.status = "ready";
   });
   readonly publish = vi.fn(async (_channel: string, _message: string) => 1);
+  readonly eval = vi.fn(
+    async (
+      _script: string,
+      _numberOfKeys: number,
+      ..._arguments: string[]
+    ) => [],
+  );
   readonly subscribe = vi.fn(async (..._channels: string[]) => 1);
   readonly unsubscribe = vi.fn(async (..._channels: string[]) => 1);
   readonly quit = vi.fn(async () => {

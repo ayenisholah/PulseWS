@@ -36,6 +36,9 @@ release.
 - Redis event adapter with dedicated publisher/subscriber connections,
   per-app fan-out channels, echo-path local delivery, socket exclusion, and
   conditional two-node integration coverage backed by Redis 7 in CI.
+- Redis-backed presence membership with atomic Lua join/leave operations,
+  cluster-wide unique-user rosters, cross-node member lifecycle events, and
+  async-safe subscribe, unsubscribe, and disconnect handling.
 
 ### Changed
 

@@ -38,15 +38,29 @@ export type PresenceLeaveResult = {
   member?: PresenceMember;
 };
 
-export class LocalPresenceRegistry {
-  private readonly apps = new Map<string, Map<string, PresenceChannel>>();
-
+export interface PresenceRegistry {
   join(
     appId: string,
     channel: string,
     socketId: string,
     member: PresenceMember,
-  ): PresenceJoinResult {
+  ): Promise<PresenceJoinResult>;
+  leave(
+    appId: string,
+    channel: string,
+    socketId: string,
+  ): Promise<PresenceLeaveResult>;
+}
+
+export class LocalPresenceRegistry implements PresenceRegistry {
+  private readonly apps = new Map<string, Map<string, PresenceChannel>>();
+
+  async join(
+    appId: string,
+    channel: string,
+    socketId: string,
+    member: PresenceMember,
+  ): Promise<PresenceJoinResult> {
     const channelState = this.getOrCreateChannel(appId, channel);
     const existingUserId = channelState.usersBySocket.get(socketId);
     if (existingUserId && existingUserId !== member.userId) {
@@ -76,7 +90,11 @@ export class LocalPresenceRegistry {
     return { ok: true, memberAdded, roster: createRoster(channelState) };
   }
 
-  leave(appId: string, channel: string, socketId: string): PresenceLeaveResult {
+  async leave(
+    appId: string,
+    channel: string,
+    socketId: string,
+  ): Promise<PresenceLeaveResult> {
     const channels = this.apps.get(appId);
     const channelState = channels?.get(channel);
     const userId = channelState?.usersBySocket.get(socketId);

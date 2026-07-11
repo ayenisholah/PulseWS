@@ -13,8 +13,8 @@ Pre-alpha. The TypeScript scaffold, validated config loading,
 uWebSockets.js handshake, public channels, connection liveness, and the signed
 REST publishing and the single-node MVP are in place, including public,
 private, and presence channels, rate-limited client events, an opt-in live
-browser demo, and Redis-backed multi-node event fan-out. The next step is
-cluster-wide presence state.
+browser demo, Redis-backed multi-node event fan-out, and cluster-wide presence
+state. The next step is cluster crash safety and application limits.
 
 Implemented:
 
@@ -29,7 +29,7 @@ Implemented:
 | Signed REST publish API | Done |
 | Private channels | Done |
 | Client events and per-connection rate limiting | Done |
-| Presence channels | Done (single node) |
+| Presence channels | Done (single node and Redis cluster) |
 | Integrated browser demo | Done |
 | Redis fan-out adapter | Done |
 | Prometheus metrics and Grafana dashboard | Planned |
@@ -89,6 +89,11 @@ connections and subscribes once per app. Events are delivered on every node,
 including the publisher, only after the Redis echo. A configured node fails
 startup if Redis is unavailable; it never silently falls back to isolated
 local delivery.
+
+With Redis configured, presence membership is stored per app and channel in a
+Redis hash keyed by socket. Lua join and leave operations make unique-user
+rosters and first-join/last-leave events atomic across nodes. Membership
+records include the user identity, user info, and owning node ID.
 
 The two-node integration test runs when `PULSEWS_TEST_REDIS_URL` is set. CI
 provisions Redis 7 and always runs this gate.
