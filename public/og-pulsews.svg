@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">PulseWS — Realtime infrastructure you control</title>
+  <desc id="desc">Social sharing card for the PulseWS WebSocket server</desc>
+  <defs>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse"><path d="M48 0H0V48" fill="none" stroke="#97b8b0" stroke-opacity=".11"/></pattern>
+    <radialGradient id="glow" cx="82%" cy="22%" r="75%"><stop offset="0" stop-color="#17c984" stop-opacity=".23"/><stop offset="1" stop-color="#071012" stop-opacity="0"/></radialGradient>
+    <filter id="shadow"><feGaussianBlur stdDeviation="16"/></filter>
+  </defs>
+  <rect width="1200" height="630" fill="#071012"/>
+  <rect width="1200" height="630" fill="url(#grid)"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+  <circle cx="1000" cy="113" r="118" fill="#64f4bc" opacity=".08" filter="url(#shadow)"/>
+  <g transform="translate(72 64)">
+    <rect width="96" height="96" rx="23" fill="#0d1a1d" stroke="#64f4bc" stroke-opacity=".32"/>
+    <path d="M14 50h13l8-24 13 49 11-38 9 13h14" fill="none" stroke="#64f4bc" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="14" cy="50" r="3.75" fill="#eef5f3"/><circle cx="82" cy="50" r="3.75" fill="#eef5f3"/>
+  </g>
+  <text x="192" y="132" fill="#eef5f3" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="58" font-weight="750" letter-spacing="-2.5">Pulse<tspan fill="#64f4bc">WS</tspan></text>
+  <text x="72" y="277" fill="#eef5f3" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="66" font-weight="760" letter-spacing="-2">Realtime infrastructure</text>
+  <text x="72" y="355" fill="#64f4bc" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="66" font-weight="760" letter-spacing="-2">you control.</text>
+  <text x="75" y="425" fill="#8ea5a0" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="26">Self-hosted · Pusher-compatible · TypeScript</text>
+  <g transform="translate(72 500)" font-family="Consolas,monospace" font-size="17" font-weight="700">
+    <rect width="204" height="50" rx="25" fill="#0d1a1d" stroke="#97b8b0" stroke-opacity=".22"/><circle cx="27" cy="25" r="5" fill="#64f4bc"/><text x="44" y="31" fill="#eef5f3">PRESENCE</text>
+    <g transform="translate(220)"><rect width="170" height="50" rx="25" fill="#0d1a1d" stroke="#97b8b0" stroke-opacity=".22"/><circle cx="27" cy="25" r="5" fill="#64f4bc"/><text x="44" y="31" fill="#eef5f3">PUB/SUB</text></g>
+    <g transform="translate(406)"><rect width="236" height="50" rx="25" fill="#0d1a1d" stroke="#97b8b0" stroke-opacity=".22"/><circle cx="27" cy="25" r="5" fill="#64f4bc"/><text x="44" y="31" fill="#eef5f3">CLIENT EVENTS</text></g>
+  </g>
+  <path d="M850 470h62l32-105 51 191 43-150 35 64h71" fill="none" stroke="#64f4bc" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" opacity=".83"/>
+  <circle cx="850" cy="470" r="5" fill="#eef5f3"/><circle cx="1144" cy="470" r="5" fill="#eef5f3"/>
+</svg>

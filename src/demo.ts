@@ -7,6 +7,11 @@ export type DemoAssets = {
   html: Buffer;
   css: Buffer;
   javascript: Buffer;
+  public: ReadonlyArray<{
+    path: string;
+    body: Buffer;
+    contentType: string;
+  }>;
 };
 
 export type DemoAuthorization = {
@@ -15,12 +20,41 @@ export type DemoAuthorization = {
 };
 
 export async function loadDemoAssets(): Promise<DemoAssets> {
-  const [html, css, javascript] = await Promise.all([
+  const publicAssets = [
+    ["/favicon.svg", "favicon.svg", "image/svg+xml; charset=utf-8"],
+    ["/favicon-16x16.png", "favicon-16x16.png", "image/png"],
+    ["/favicon-32x32.png", "favicon-32x32.png", "image/png"],
+    ["/apple-touch-icon.png", "apple-touch-icon.png", "image/png"],
+    ["/icon-192.png", "icon-192.png", "image/png"],
+    ["/icon-512.png", "icon-512.png", "image/png"],
+    ["/logo.svg", "logo.svg", "image/svg+xml; charset=utf-8"],
+    ["/og-pulsews.png", "og-pulsews.png", "image/png"],
+    [
+      "/site.webmanifest",
+      "site.webmanifest",
+      "application/manifest+json; charset=utf-8",
+    ],
+    ["/robots.txt", "robots.txt", "text/plain; charset=utf-8"],
+    ["/sitemap.xml", "sitemap.xml", "application/xml; charset=utf-8"],
+  ] as const;
+  const [html, css, javascript, ...publicBodies] = await Promise.all([
     readFile(new URL("../public/index.html", import.meta.url)),
     readFile(new URL("../public/styles.css", import.meta.url)),
     readFile(new URL("../public/demo.js", import.meta.url)),
+    ...publicAssets.map(([, filename]) =>
+      readFile(new URL(`../public/${filename}`, import.meta.url)),
+    ),
   ]);
-  return { html, css, javascript };
+  return {
+    html,
+    css,
+    javascript,
+    public: publicAssets.map(([path, , contentType], index) => ({
+      path,
+      body: publicBodies[index]!,
+      contentType,
+    })),
+  };
 }
 
 export function authorizeDemoPresence(

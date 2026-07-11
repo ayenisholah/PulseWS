@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 128" role="img" aria-labelledby="title desc">
+  <title id="title">PulseWS</title>
+  <desc id="desc">Pulse waveform monogram and PulseWS wordmark</desc>
+  <rect width="112" height="112" y="8" rx="26" fill="#071012"/>
+  <path d="M17 65h15l9-27 15 55 13-43 10 15h16" fill="none" stroke="#64f4bc" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="17" cy="65" r="4.5" fill="#eef5f3"/>
+  <circle cx="95" cy="65" r="4.5" fill="#eef5f3"/>
+  <text x="140" y="85" fill="#eef5f3" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="68" font-weight="750" letter-spacing="-3">Pulse<tspan fill="#64f4bc">WS</tspan></text>
+</svg>

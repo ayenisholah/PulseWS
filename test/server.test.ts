@@ -260,17 +260,32 @@ describe("integrated demo mode", () => {
     expect((await fetch(`http://127.0.0.1:${disabled.port}/`)).status).toBe(404);
 
     const server = await startDemoServer();
-    const [page, styles, script, config] = await Promise.all([
+    const [page, styles, script, config, favicon, socialCard, manifest, robots, sitemap] = await Promise.all([
       fetch(`http://127.0.0.1:${server.port}/`),
       fetch(`http://127.0.0.1:${server.port}/styles.css`),
       fetch(`http://127.0.0.1:${server.port}/demo.js`),
       fetch(`http://127.0.0.1:${server.port}/demo/config`),
+      fetch(`http://127.0.0.1:${server.port}/favicon.svg`),
+      fetch(`http://127.0.0.1:${server.port}/og-pulsews.png`),
+      fetch(`http://127.0.0.1:${server.port}/site.webmanifest`),
+      fetch(`http://127.0.0.1:${server.port}/robots.txt`),
+      fetch(`http://127.0.0.1:${server.port}/sitemap.xml`),
     ]);
 
     expect(page.status).toBe(200);
     expect(page.headers.get("content-type")).toContain("text/html");
     expect(styles.headers.get("content-type")).toContain("text/css");
     expect(script.headers.get("content-type")).toContain("text/javascript");
+    expect(favicon.headers.get("content-type")).toContain("image/svg+xml");
+    expect(socialCard.headers.get("content-type")).toContain("image/png");
+    expect(manifest.headers.get("content-type")).toContain("application/manifest+json");
+    expect(robots.headers.get("content-type")).toContain("text/plain");
+    expect(sitemap.headers.get("content-type")).toContain("application/xml");
+    expect(socialCard.headers.get("cache-control")).toContain("public");
+    expect((await socialCard.arrayBuffer()).byteLength).toBeGreaterThan(100_000);
+    await expect(manifest.json()).resolves.toMatchObject({ short_name: "PulseWS" });
+    expect(await robots.text()).toContain("Sitemap: https://pulsews.jobrail.xyz/sitemap.xml");
+    expect(await sitemap.text()).toContain("https://pulsews.jobrail.xyz/");
     await expect(config.json()).resolves.toEqual({
       appKey: "demo-key",
       channel: "presence-demo",

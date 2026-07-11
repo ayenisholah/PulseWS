@@ -683,6 +683,11 @@ function registerDemoRoutes(
   app.get("/demo.js", (res) => {
     sendStaticAsset(res, assets.javascript, "text/javascript; charset=utf-8");
   });
+  for (const asset of assets.public) {
+    app.get(asset.path, (res) => {
+      sendStaticAsset(res, asset.body, asset.contentType, true);
+    });
+  }
   app.get("/demo/config", (res) => {
     res
       .writeHeader("content-type", "application/json")
@@ -747,10 +752,14 @@ function sendStaticAsset(
   res: uWS.HttpResponse,
   body: Buffer,
   contentType: string,
+  cacheable = false,
 ): void {
   res
     .writeHeader("content-type", contentType)
-    .writeHeader("cache-control", "no-store")
+    .writeHeader(
+      "cache-control",
+      cacheable ? "public, max-age=86400" : "no-store",
+    )
     .end(body);
 }
 

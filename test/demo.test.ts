@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 
 import { describe, expect, test } from "vitest";
 
-import { authorizeDemoPresence } from "../src/demo.js";
+import { authorizeDemoPresence, loadDemoAssets } from "../src/demo.js";
 
 const app = { key: "demo-key", secret: "demo-secret" };
 
@@ -58,6 +58,27 @@ describe("demo assets", () => {
     expect(javascript).toContain('pusher.bind("pulsews:node"');
     expect(javascript).toContain('channel.trigger("client-demo-message"');
     expect(javascript).toContain("MAX_LOG_ENTRIES");
+  });
+
+  test("includes complete discoverability and social metadata", async () => {
+    const assets = await loadDemoAssets();
+    const html = assets.html.toString("utf8");
+    const manifest = JSON.parse(
+      assets.public
+        .find(({ path }) => path === "/site.webmanifest")!
+        .body.toString("utf8"),
+    ) as { name: string; icons: Array<{ sizes: string }> };
+
+    expect(html).toContain(
+      '<link rel="canonical" href="https://pulsews.jobrail.xyz/"',
+    );
+    expect(html).toContain('property="og:image"');
+    expect(html).toContain('name="twitter:card" content="summary_large_image"');
+    expect(html).toContain('type="application/ld+json"');
+    expect(html).toContain('rel="manifest" href="/site.webmanifest"');
+    expect(manifest.name).toBe("PulseWS Live Console");
+    expect(manifest.icons.map(({ sizes }) => sizes)).toEqual(["192x192", "512x512"]);
+    expect(assets.public.map(({ path }) => path)).toContain("/sitemap.xml");
   });
 });
 
