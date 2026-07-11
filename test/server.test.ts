@@ -16,6 +16,7 @@ import { MAX_INGRESS_BYTES } from "../src/publish.js";
 import {
   APP_NOT_FOUND_CLOSE_CODE,
   CONNECTION_LIMIT_ERROR_CODE,
+  GRACEFUL_SHUTDOWN_CLOSE_CODE,
   readClusterSize,
   resolveNodeId,
   startServer,
@@ -131,6 +132,22 @@ describe("uWS server handshake", () => {
       status: "ok",
       nodeId: server.nodeId,
     });
+  });
+
+  test("graceful shutdown is idempotent and closes clients with code 4200", async () => {
+    const server = await startTestServer();
+    const socket = await connectRawSocket(server.port);
+    const closed = new Promise<CloseEvent>((resolve) => {
+      socket.addEventListener("close", resolve, { once: true });
+    });
+
+    const firstClose = server.close();
+    expect(server.close()).toBe(firstClose);
+    await expect(firstClose).resolves.toBeUndefined();
+    await expect(closed).resolves.toMatchObject({
+      code: GRACEFUL_SHUTDOWN_CLOSE_CODE,
+    });
+    await expect(fetch(`http://127.0.0.1:${server.port}/health`)).rejects.toThrow();
   });
 
   test("exposes connection, subscription, rejection, and throttle metrics", async () => {

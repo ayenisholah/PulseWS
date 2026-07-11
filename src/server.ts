@@ -66,6 +66,8 @@ import { RedisPresenceRegistry } from "./redis-presence.js";
 const DEFAULT_ACTIVITY_GRACE_SECONDS = 30;
 const DEFAULT_REAPER_INTERVAL_MILLISECONDS = 1_000;
 export const CONNECTION_LIMIT_ERROR_CODE = 4100;
+export const GRACEFUL_SHUTDOWN_CLOSE_CODE = 4200;
+export const GRACEFUL_SHUTDOWN_TIMEOUT_MILLISECONDS = 5_000;
 
 type SocketData =
   | {
@@ -79,6 +81,7 @@ type SocketData =
       connectionReserved: boolean;
       lastActivityAt: number;
       closed: boolean;
+      cleanupPromise?: Promise<void>;
     }
   | {
       accepted: false;
@@ -186,6 +189,23 @@ export async function startServer(
   const reaperIntervalMilliseconds =
     timing.reaperIntervalMilliseconds ??
     DEFAULT_REAPER_INTERVAL_MILLISECONDS;
+
+  const cleanupSocket = (
+    data: Extract<SocketData, { accepted: true }>,
+  ): Promise<void> => {
+    data.cleanupPromise ??= (async () => {
+      await data.subscriptionOperations;
+      for (const channel of data.presenceMemberships.keys()) {
+        await leavePresenceChannel(data, channel, adapter, presence);
+      }
+      data.presenceMemberships.clear();
+      if (data.connectionReserved) {
+        await connections.releaseConnection(data.app.id, data.socketId);
+        data.connectionReserved = false;
+      }
+    })();
+    return data.cleanupPromise;
+  };
 
   app.ws<SocketData>("/app/:key", {
     maxPayloadLength: MAX_INGRESS_BYTES,
@@ -368,17 +388,7 @@ export async function startServer(
         if (data.connectionReserved) {
           metrics.connectionClosed(data.app.id);
         }
-        void data.subscriptionOperations
-          .then(async () => {
-            for (const channel of data.presenceMemberships.keys()) {
-              await leavePresenceChannel(data, channel, adapter, presence);
-            }
-            data.presenceMemberships.clear();
-            if (data.connectionReserved) {
-              await connections.releaseConnection(data.app.id, data.socketId);
-              data.connectionReserved = false;
-            }
-          })
+        void cleanupSocket(data)
           .catch((error: unknown) => {
             metrics.drop("cluster_cleanup_failure");
             logger.error(
@@ -599,12 +609,63 @@ export async function startServer(
       closePromise ??= (async () => {
         clearInterval(reaper);
         uWS.us_listen_socket_close(listenSocket);
-        await connections.close();
-        await adapter.close();
+        const errors: unknown[] = [];
+        try {
+          await connections.close();
+        } catch (error) {
+          errors.push(error);
+        }
+
+        const sockets = [...acceptedSockets];
+        const cleanup = sockets.map((ws) => {
+          const data = ws.getUserData();
+          ws.end(
+            GRACEFUL_SHUTDOWN_CLOSE_CODE,
+            "Server shutting down; reconnect allowed",
+          );
+          return data.accepted ? cleanupSocket(data) : Promise.resolve();
+        });
+        try {
+          await withTimeout(
+            Promise.all(cleanup).then(() => undefined),
+            GRACEFUL_SHUTDOWN_TIMEOUT_MILLISECONDS,
+            "Timed out draining WebSocket cleanup",
+          );
+        } catch (error) {
+          errors.push(error);
+        }
+        try {
+          await adapter.close();
+        } catch (error) {
+          errors.push(error);
+        }
+        if (errors.length > 0) {
+          throw new AggregateError(errors, "Graceful shutdown cleanup failed");
+        }
       })();
       return closePromise;
     },
   };
+}
+
+async function withTimeout(
+  operation: Promise<void>,
+  timeoutMilliseconds: number,
+  message: string,
+): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      operation,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMilliseconds);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
 }
 
 function registerDemoRoutes(
