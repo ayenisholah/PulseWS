@@ -49,6 +49,9 @@ release.
   Prometheus, and Grafana.
 - Cluster smoke harness covering distinct load-balanced nodes, demo
   authorization, Redis presence, and signed cross-node REST delivery.
+- VPS Compose acceptance evidence for distinct `pulsews-a`/`pulsews-b`
+  routing, shared presence, nginx authorization, and HTTP 200 signed REST
+  publishing.
 
 ### Changed
 

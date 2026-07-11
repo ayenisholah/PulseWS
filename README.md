@@ -14,8 +14,9 @@ uWebSockets.js handshake, public channels, connection liveness, and the signed
 REST publishing and the single-node MVP are in place, including public,
 private, and presence channels, rate-limited client events, an opt-in live
 browser demo, Redis-backed multi-node event fan-out, cluster-wide presence,
-dead-node cleanup, connection caps, and REST publish throttling. The next step
-is the production Compose cluster.
+dead-node cleanup, connection caps, REST publish throttling, and a production
+Compose cluster verified across two VPS containers. The next step is live
+Grafana dashboard acceptance.
 
 Implemented:
 
@@ -35,7 +36,7 @@ Implemented:
 | Redis fan-out adapter | Done |
 | Redis heartbeat and dead-node cleanup | Done |
 | Connection caps and REST publish limits | Done |
-| Docker Compose cluster artifacts | Ready; VPS smoke pending |
+| Docker Compose cluster | Done; two-node VPS smoke passed |
 | Prometheus metrics and Grafana dashboard | Planned |
 | k6 load-test writeup with measured results | Planned |
 
@@ -118,7 +119,8 @@ It runs two stable-ID PulseWS nodes, Redis 7, nginx `least_conn`, Prometheus,
 and Grafana. The production image is built in GitHub Actions and pulled from
 GHCR, so local Docker is not required on Windows. Copy the external config
 example, replace its secret, and follow the deployment README. The M3 cluster
-milestone remains pending until the full smoke succeeds on the Ubuntu VPS.
+milestone passed on the Ubuntu VPS with distinct-node routing, cross-node
+presence, nginx demo authorization, and signed REST delivery.
 
 ## Browser Demo
 
