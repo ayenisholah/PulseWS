@@ -1,4 +1,4 @@
-FROM node:22-bookworm-slim AS build
+FROM node:22-trixie-slim AS build
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates git python3 make g++ \
@@ -13,7 +13,7 @@ COPY src ./src
 RUN npm run build:prod \
   && npm prune --omit=dev
 
-FROM node:22-bookworm-slim AS runtime
+FROM node:22-trixie-slim AS runtime
 
 ENV NODE_ENV=production \
     PULSEWS_CONFIG=/run/secrets/pulsews.config.json

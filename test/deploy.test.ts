@@ -7,6 +7,8 @@ describe("production container and Compose cluster", () => {
     const dockerfile = await read("Dockerfile");
 
     expect(dockerfile.match(/^FROM /gm)).toHaveLength(2);
+    expect(dockerfile).toContain("FROM node:22-trixie-slim AS build");
+    expect(dockerfile).toContain("FROM node:22-trixie-slim AS runtime");
     expect(dockerfile).toContain("npm run build:prod");
     expect(dockerfile).toContain("npm prune --omit=dev");
     expect(dockerfile).toContain("HEALTHCHECK");
