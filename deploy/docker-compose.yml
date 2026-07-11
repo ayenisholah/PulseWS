@@ -25,6 +25,10 @@ services:
     pull_policy: always
     restart: unless-stopped
     logging: *default-logging
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     environment:
       PULSEWS_CONFIG: /run/secrets/pulsews.config.json
       PULSEWS_NODE_ID: pulsews-a
@@ -42,6 +46,10 @@ services:
     pull_policy: always
     restart: unless-stopped
     logging: *default-logging
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     environment:
       PULSEWS_CONFIG: /run/secrets/pulsews.config.json
       PULSEWS_NODE_ID: pulsews-b
@@ -58,6 +66,10 @@ services:
     image: nginx:1.27-alpine
     restart: unless-stopped
     logging: *default-logging
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     ports:
       - "${PULSEWS_HTTP_PORT:-8080}:80"
     volumes:

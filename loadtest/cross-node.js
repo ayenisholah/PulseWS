@@ -1,6 +1,6 @@
 import http from "k6/http";
 import ws from "k6/ws";
-import { check } from "k6";
+import { check, sleep } from "k6";
 import { Counter, Trend } from "k6/metrics";
 import { channelFor, positiveInteger, signedPublish, subscribeMessage, wsUrl } from "./common.js";
 
@@ -50,6 +50,7 @@ export default function () {
         socket.send(subscribeMessage(channel));
       }
       if (message.event === "pusher_internal:subscription_succeeded") {
+        sleep(positiveInteger("PULSEWS_PUBLISH_DELAY_MS", 250) / 1000);
         sentAt = Date.now();
         const request = signedPublish(
           channel,

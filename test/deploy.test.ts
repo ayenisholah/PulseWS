@@ -51,6 +51,9 @@ describe("production container and Compose cluster", () => {
     ]);
 
     expect(nginx).toContain("least_conn;");
+    expect(nginx).toContain("worker_processes auto;");
+    expect(nginx).toContain("worker_connections 4096;");
+    expect(nginx).toContain("worker_rlimit_nofile 65535;");
     expect(nginx).toContain("proxy_set_header Upgrade $http_upgrade;");
     expect(nginx).toContain('proxy_set_header Connection "upgrade";');
     expect(prometheus).toContain("pulsews-a:6001");
@@ -97,6 +100,8 @@ describe("production container and Compose cluster", () => {
     expect(compose).toContain('127.0.0.1:${GRAFANA_PORT:-3000}:3000');
     expect(compose).toContain('max-size: "10m"');
     expect(compose).toContain('max-file: "5"');
+    expect(compose.match(/soft: 65535/g)).toHaveLength(3);
+    expect(compose.match(/hard: 65535/g)).toHaveLength(3);
   });
 
   test("checks named smoke members without rejecting other demo users", async () => {
@@ -147,6 +152,12 @@ describe("production container and Compose cluster", () => {
     expect(runner).toContain("wait_for_recovery");
     expect(runner).toContain("drops-by-reason.json");
     expect(runner).toContain("PULSEWS_CHANNEL_PREFIX");
+    expect(runner).toContain("PULSEWS_CONSUMER_SECONDS=310");
+    expect(runner.match(/PULSEWS_PUBLISH_DELAY_MS=250/g)).toHaveLength(2);
+    expect(runner).toContain("printf '0\\n'");
+    expect(runner).toContain('current_connections=$(prometheus_scalar');
+    expect(runner).toContain('current_drops=$(prometheus_scalar');
+    expect(runner).toContain('current_throttles=$(prometheus_scalar');
   });
 
   test("prevents connection retry amplification and diagnoses delivery rejects", async () => {
@@ -159,10 +170,25 @@ describe("production container and Compose cluster", () => {
     expect(connections).toContain("let attempted = false");
     expect(connections).toContain("if (attempted)");
     expect(connections).toContain("WebSocket upgrade rejected with status");
+    expect(connections).toContain('pulsews_ws_handshake_ms: ["p(99)<2000"]');
     expect(delivery).toContain("pulsews_delivery_publish_failures");
     expect(delivery).toContain("pulsews_delivery_timeouts");
     expect(delivery).toContain("Delivery publish rejected: status=");
+    expect(delivery).toContain('sleep(positiveInteger("PULSEWS_PUBLISH_DELAY_MS", 250) / 1000)');
+    expect(delivery).toContain('pulsews_delivery_ms: ["p(99)<40"]');
     expect(common).toContain('PULSEWS_CHANNEL_PREFIX || "load"');
+  });
+
+  test("keeps REST publishing subscribed on every channel on both nodes", async () => {
+    const rest = await read("loadtest/rest-latency.js");
+
+    expect(rest).toContain("consumers_a:");
+    expect(rest).toContain("consumers_b:");
+    expect(rest.match(/vus: 32/g)).toHaveLength(2);
+    expect(rest).toContain('startTime: "5s"');
+    expect(rest).toContain("pulsews_rest_consumer_connection_failures");
+    expect(rest).toContain("pulsews_rest_consumer_subscription_failures");
+    expect(rest).toContain('pulsews_rest_publish_ms: ["p(99)<1000"]');
   });
 });
 

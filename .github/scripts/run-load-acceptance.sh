@@ -58,9 +58,16 @@ prometheus_snapshot() {
 }
 
 prometheus_scalar() {
-  local query=$1
-  curl --fail --silent "http://127.0.0.1:9090/api/v1/query?query=$query" \
-    | grep -o '"value":\[[^]]*\]' | tail -1 | grep -o '"[0-9.eE+-]*"' | tail -1 | tr -d '"'
+  local query=$1 response value
+  response=$(curl --fail --silent --show-error "http://127.0.0.1:9090/api/v1/query?query=$query") || return 1
+  [[ "$response" == *'"status":"success"'* ]] || return 1
+  if [[ "$response" =~ \"result\"[[:space:]]*:[[:space:]]*\[\] ]]; then
+    printf '0\n'
+    return 0
+  fi
+  value=$(printf '%s' "$response" | grep -o '"value":\[[^]]*\]' | tail -1 | grep -o '"[0-9.eE+-]*"' | tail -1 | tr -d '"')
+  [[ "$value" =~ ^[0-9.eE+-]+$ ]] || return 1
+  printf '%s\n' "$value"
 }
 
 connection_headroom() {
@@ -213,11 +220,11 @@ else
   baseline_reserved=$(sed -n 's/^reserved_connections=//p' "$results_dir/connection-headroom.txt")
   run_k6 connection-500 -e PULSEWS_VUS=500 -e PULSEWS_RAMP_DURATION=30s -e PULSEWS_DURATION=60s -e PULSEWS_HOLD_SECONDS=120 -e PULSEWS_RAMP_DOWN_DURATION=15s -e PULSEWS_SCENARIO_SECONDS=105 /loadtest/connection-ramp.js
   wait_for_recovery connection-500 "$baseline_reserved" || overall_status=1
-  run_k6 rest-500 -e PULSEWS_RATE=50 -e PULSEWS_DURATION=5m -e PULSEWS_CHANNELS=32 -e "PULSEWS_CHANNEL_PREFIX=acceptance-${GITHUB_SHA:-unknown}-rest" /loadtest/rest-latency.js
+  run_k6 rest-500 -e PULSEWS_RATE=50 -e PULSEWS_DURATION=5m -e PULSEWS_CHANNELS=32 -e PULSEWS_CONSUMER_SECONDS=310 -e PULSEWS_NODE_A_URL=http://127.0.0.1:6002 -e PULSEWS_NODE_B_URL=http://127.0.0.1:6003 -e "PULSEWS_CHANNEL_PREFIX=acceptance-${GITHUB_SHA:-unknown}-rest" /loadtest/rest-latency.js
   wait_for_recovery rest-500 "$baseline_reserved" || overall_status=1
-  run_k6 same-node-500 -e PULSEWS_VUS=10 -e PULSEWS_ITERATIONS=100 -e "PULSEWS_CHANNEL_PREFIX=acceptance-${GITHUB_SHA:-unknown}-same" -e PULSEWS_EXPECT_SCOPE=same_node -e PULSEWS_NODE_A_URL=http://127.0.0.1:6002 -e PULSEWS_NODE_B_URL=http://127.0.0.1:6002 /loadtest/cross-node.js
+  run_k6 same-node-500 -e PULSEWS_VUS=10 -e PULSEWS_ITERATIONS=100 -e PULSEWS_PUBLISH_DELAY_MS=250 -e "PULSEWS_CHANNEL_PREFIX=acceptance-${GITHUB_SHA:-unknown}-same" -e PULSEWS_EXPECT_SCOPE=same_node -e PULSEWS_NODE_A_URL=http://127.0.0.1:6002 -e PULSEWS_NODE_B_URL=http://127.0.0.1:6002 /loadtest/cross-node.js
   wait_for_recovery same-node-500 "$baseline_reserved" || overall_status=1
-  run_k6 cross-node-500 -e PULSEWS_VUS=10 -e PULSEWS_ITERATIONS=100 -e "PULSEWS_CHANNEL_PREFIX=acceptance-${GITHUB_SHA:-unknown}-cross" -e PULSEWS_EXPECT_SCOPE=cross_node -e PULSEWS_NODE_A_URL=http://127.0.0.1:6002 -e PULSEWS_NODE_B_URL=http://127.0.0.1:6003 /loadtest/cross-node.js
+  run_k6 cross-node-500 -e PULSEWS_VUS=10 -e PULSEWS_ITERATIONS=100 -e PULSEWS_PUBLISH_DELAY_MS=250 -e "PULSEWS_CHANNEL_PREFIX=acceptance-${GITHUB_SHA:-unknown}-cross" -e PULSEWS_EXPECT_SCOPE=cross_node -e PULSEWS_NODE_A_URL=http://127.0.0.1:6002 -e PULSEWS_NODE_B_URL=http://127.0.0.1:6003 /loadtest/cross-node.js
 fi
 
 (( scenario_status == 0 )) || overall_status=1
