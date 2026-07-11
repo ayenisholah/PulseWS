@@ -16,9 +16,16 @@ const deliveries = new Trend("pulsews_capacity_delivery_ms", true);
 const connectionFailures = new Counter("pulsews_capacity_connection_failures");
 const subscriptionFailures = new Counter("pulsews_capacity_subscription_failures");
 const publishFailures = new Counter("pulsews_capacity_publish_failures");
+const publish4xx = new Counter("pulsews_capacity_publish_4xx");
+const publish5xx = new Counter("pulsews_capacity_publish_5xx");
+const publishOther = new Counter("pulsews_capacity_publish_other");
+const upgrade4xx = new Counter("pulsews_capacity_upgrade_4xx");
+const upgrade5xx = new Counter("pulsews_capacity_upgrade_5xx");
+const upgradeOther = new Counter("pulsews_capacity_upgrade_other");
 let attempted = false;
 
 export const options = {
+  summaryTrendStats: ["avg", "min", "med", "p(90)", "p(95)", "p(99)", "max"],
   scenarios: {
     connections: {
       executor: "ramping-vus",
@@ -50,6 +57,21 @@ export const options = {
     pulsews_capacity_publish_failures: ["count==0"],
     pulsews_capacity_handshake_ms: ["p(99)<2000"],
     pulsews_capacity_delivery_ms: ["p(99)<40"],
+    "pulsews_capacity_publish_failures{status:401}": ["count==0"],
+    "pulsews_capacity_publish_failures{status:403}": ["count==0"],
+    "pulsews_capacity_publish_failures{status:429}": ["count==0"],
+    "pulsews_capacity_publish_failures{status:500}": ["count==0"],
+    "pulsews_capacity_publish_failures{status:502}": ["count==0"],
+    "pulsews_capacity_publish_failures{status:503}": ["count==0"],
+    "pulsews_capacity_publish_failures{status:504}": ["count==0"],
+    "pulsews_capacity_connection_failures{phase:upgrade,status:400}": ["count==0"],
+    "pulsews_capacity_connection_failures{phase:upgrade,status:401}": ["count==0"],
+    "pulsews_capacity_connection_failures{phase:upgrade,status:403}": ["count==0"],
+    "pulsews_capacity_connection_failures{phase:upgrade,status:429}": ["count==0"],
+    "pulsews_capacity_connection_failures{phase:upgrade,status:500}": ["count==0"],
+    "pulsews_capacity_connection_failures{phase:upgrade,status:502}": ["count==0"],
+    "pulsews_capacity_connection_failures{phase:upgrade,status:503}": ["count==0"],
+    "pulsews_capacity_connection_failures{phase:upgrade,status:504}": ["count==0"],
   },
 };
 
@@ -85,7 +107,9 @@ export function connection() {
     socket.setTimeout(() => socket.close(), connectionSeconds * 1000);
   });
   if (!check(response, { "WebSocket upgraded": (r) => r?.status === 101 })) {
-    connectionFailures.add(1, { phase: "upgrade", status: String(response?.status ?? "none") });
+    const status = Number(response?.status ?? 0);
+    connectionFailures.add(1, { phase: "upgrade", status: String(status || "none") });
+    recordStatus(status, upgrade4xx, upgrade5xx, upgradeOther);
   }
   if (!subscribed) subscriptionFailures.add(1);
 }
@@ -95,6 +119,25 @@ export function publish() {
   const request = signedPublish(channel, "capacity-event", { sentAt: Date.now(), sequence: __ITER });
   const response = http.post(request.url, request.body, { headers: { "Content-Type": "application/json" } });
   if (!check(response, { "REST publish accepted": (r) => r.status === 200 })) {
-    publishFailures.add(1, { status: String(response.status) });
+    publishFailures.add(1, { status: String(response.status), body: responseBodyCategory(response) });
+    recordStatus(response.status, publish4xx, publish5xx, publishOther);
   }
+}
+
+function responseBodyCategory(response) {
+  const body = String(response?.body || "").trim();
+  if (!body) return "empty";
+  if (/^\s*</.test(body)) return "html";
+  try {
+    const parsed = JSON.parse(body);
+    return parsed && typeof parsed === "object" ? "json" : "json_scalar";
+  } catch (_) {
+    return "text";
+  }
+}
+
+function recordStatus(status, clientErrors, serverErrors, other) {
+  if (status >= 400 && status < 500) clientErrors.add(1, { status: String(status) });
+  else if (status >= 500 && status < 600) serverErrors.add(1, { status: String(status) });
+  else other.add(1, { status: String(status || "none") });
 }

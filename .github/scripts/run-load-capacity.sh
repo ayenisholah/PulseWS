@@ -54,10 +54,10 @@ wait_for_recovery() {
   return 1
 }
 sample_resources() {
-  local dir=$1 previous_total='' previous_idle='' overload=0 peak_cpu=0 peak_mem=0
+  local dir=$1 app_id=$2 previous_total='' previous_idle='' overload=0 peak_cpu=0 peak_mem=0
   printf 'timestamp,host_cpu_percent,host_used_bytes\n' >"$dir/host-samples.csv"
   printf 'timestamp,container,cpu_percent,memory_usage\n' >"$dir/container-samples.csv"
-  printf 'timestamp,connections,subscriptions,same_node_deliveries,cross_node_deliveries,actionable_drops,rest_throttles\n' >"$dir/prometheus-samples.csv"
+  printf 'timestamp,connections,subscriptions,same_node_deliveries,cross_node_deliveries,actionable_drops,rest_throttles,redis_reservations\n' >"$dir/prometheus-samples.csv"
   while :; do
     read -r _ user nice system idle iowait irq softirq steal _ < /proc/stat
     local total=$((user+nice+system+idle+iowait+irq+softirq+steal)) idle_all=$((idle+iowait)) cpu=0
@@ -66,14 +66,15 @@ sample_resources() {
     local used; used=$(awk '/MemTotal/{t=$2}/MemAvailable/{a=$2}END{print (t-a)*1024}' /proc/meminfo)
     printf '%s,%s,%s\n' "$(date -u +%FT%TZ)" "$cpu" "$used" >>"$dir/host-samples.csv"
     docker stats --no-stream --format '{{.Name}},{{.CPUPerc}},{{.MemUsage}}' >>"$dir/container-samples.csv" 2>/dev/null || true
-    local connections subscriptions same cross drops throttles
+    local connections subscriptions same cross drops throttles reservations
     connections=$(scalar 'sum%28pulsews_connections%29' || echo invalid)
     subscriptions=$(scalar 'sum%28pulsews_subscriptions%7Bchannel_type%3D%22public%22%7D%29' || echo invalid)
     same=$(scalar 'sum%28pulsews_delivery_latency_seconds_count%7Bscope%3D%22same_node%22%7D%29%20or%20vector%280%29' || echo invalid)
     cross=$(scalar 'sum%28pulsews_delivery_latency_seconds_count%7Bscope%3D%22cross_node%22%7D%29%20or%20vector%280%29' || echo invalid)
     drops=$(scalar 'sum%28pulsews_dropped_messages_total%7Breason%21%3D%22no_local_subscribers%22%7D%29%20or%20vector%280%29' || echo invalid)
     throttles=$(scalar 'sum%28pulsews_rest_throttled_total%29%20or%20vector%280%29' || echo invalid)
-    printf '%s,%s,%s,%s,%s,%s,%s\n' "$(date -u +%FT%TZ)" "$connections" "$subscriptions" "$same" "$cross" "$drops" "$throttles" >>"$dir/prometheus-samples.csv"
+    reservations=$(docker compose -f "$compose_file" exec -T redis redis-cli --raw GET "pulsews:app:$app_id:connections" 2>/dev/null || echo invalid); reservations=${reservations:-0}
+    printf '%s,%s,%s,%s,%s,%s,%s,%s\n' "$(date -u +%FT%TZ)" "$connections" "$subscriptions" "$same" "$cross" "$drops" "$throttles" "$reservations" >>"$dir/prometheus-samples.csv"
     awk "BEGIN {exit !($cpu>$peak_cpu)}" && peak_cpu=$cpu
     (( used > peak_mem )) && peak_mem=$used
     if awk "BEGIN {exit !($cpu>90)}"; then overload=$((overload+1)); else overload=0; fi
@@ -88,7 +89,9 @@ trap 'stop_sampler; rm -f "$credentials_file"' EXIT
 app_id=$(sed -n 's/^PULSEWS_APP_ID=//p' "$credentials_file")
 run_started_at=$(date -u +%FT%TZ)
 capture "$results_dir/host.txt" sh -c 'uname -a; lscpu; free -h; ulimit -n'
+capture "$results_dir/host-network-limits.txt" sh -c 'df -h; sysctl fs.file-max net.core.somaxconn net.ipv4.ip_local_port_range net.netfilter.nf_conntrack_count net.netfilter.nf_conntrack_max 2>&1'
 capture "$results_dir/compose.txt" docker compose -f "$compose_file" ps
+capture "$results_dir/container-limits.txt" docker inspect --format '{{.Name}} nofile={{json .HostConfig.Ulimits}} pids={{.HostConfig.PidsLimit}} memory={{.HostConfig.Memory}}' $(docker compose -f "$compose_file" ps -q)
 capture "$results_dir/redis-memory-preflight.txt" docker compose -f "$compose_file" exec -T redis redis-cli INFO memory
 capture "$results_dir/redis-clients-preflight.txt" docker compose -f "$compose_file" exec -T redis redis-cli INFO clients
 docker pull "$k6_image" || { stop_reason="k6 image pull failed"; exit 1; }
@@ -120,7 +123,8 @@ if (( preflight_ok )); then
     cross_before=$(scalar 'sum%28pulsews_delivery_latency_seconds_count%7Bscope%3D%22cross_node%22%7D%29%20or%20vector%280%29' || echo x)
     drops_before=$(scalar 'sum%28pulsews_dropped_messages_total%7Breason%21%3D%22no_local_subscribers%22%7D%29%20or%20vector%280%29' || echo x)
     throttles_before=$(scalar 'sum%28pulsews_rest_throttled_total%29%20or%20vector%280%29' || echo x)
-    sample_resources "$tier_dir" & sampler_pid=$!
+    baseline_subscriptions=$(scalar 'sum%28pulsews_subscriptions%7Bchannel_type%3D%22public%22%7D%29' || echo 0)
+    sample_resources "$tier_dir" "$app_id" & sampler_pid=$!
     command=(docker run --rm --network host --user "$(id -u):$(id -g)" --env-file "$credentials_file" -v "$loadtest_dir:/loadtest:ro" -v "$tier_dir:/results" "$k6_image" run --summary-export=/results/k6-summary.json -e "PULSEWS_VUS=$tier" -e PULSEWS_CHANNELS=100 -e PULSEWS_RATE=50 -e PULSEWS_RAMP_DURATION=5m -e PULSEWS_HOLD_DURATION=5m -e PULSEWS_CONNECTION_SECONDS=630 -e "PULSEWS_CHANNEL_PREFIX=capacity-${GITHUB_SHA:-unknown}-$tier" /loadtest/capacity.js)
     printf '%q ' "${command[@]}" >"$tier_dir/command.txt"; printf '\n' >>"$tier_dir/command.txt"
     "${command[@]}" 2>&1 | tee "$tier_dir/k6.log"; k6_status=${PIPESTATUS[0]}
@@ -130,27 +134,38 @@ if (( preflight_ok )); then
     capture "$tier_dir/redis-memory.txt" docker compose -f "$compose_file" exec -T redis redis-cli INFO memory
     capture "$tier_dir/redis-clients.txt" docker compose -f "$compose_file" exec -T redis redis-cli INFO clients
     capture "$tier_dir/redis-errors.txt" docker compose -f "$compose_file" logs --since "$tier_started" redis
+    capture "$tier_dir/nginx.log" docker compose -f "$compose_file" logs --since "$tier_started" nginx
+    capture "$tier_dir/pulsews-a.log" docker compose -f "$compose_file" logs --since "$tier_started" pulsews-a
+    capture "$tier_dir/pulsews-b.log" docker compose -f "$compose_file" logs --since "$tier_started" pulsews-b
     same_after=$(scalar 'sum%28pulsews_delivery_latency_seconds_count%7Bscope%3D%22same_node%22%7D%29%20or%20vector%280%29' || echo x)
     cross_after=$(scalar 'sum%28pulsews_delivery_latency_seconds_count%7Bscope%3D%22cross_node%22%7D%29%20or%20vector%280%29' || echo x)
     drops_after=$(scalar 'sum%28pulsews_dropped_messages_total%7Breason%21%3D%22no_local_subscribers%22%7D%29%20or%20vector%280%29' || echo x)
     throttles_after=$(scalar 'sum%28pulsews_rest_throttled_total%29%20or%20vector%280%29' || echo x)
     peak_connections=$(awk -F, 'NR>1 && $2 ~ /^[0-9.]+$/ && $2>m {m=$2} END{print m+0}' "$tier_dir/prometheus-samples.csv")
     peak_subscriptions=$(awk -F, 'NR>1 && $3 ~ /^[0-9.]+$/ && $3>m {m=$3} END{print m+0}' "$tier_dir/prometheus-samples.csv")
-    printf 'peak_connections=%s\npeak_subscriptions=%s\n' "$peak_connections" "$peak_subscriptions" >>"$tier_dir/peaks.txt"
-    reason=''
-    (( k6_status == 0 )) || reason="k6 threshold or scenario failure"
-    cmp -s "$tier_dir/container-state-before.txt" "$tier_dir/container-state-after.txt" || reason="container restart, OOM, health, or image changed"
-    grep -Eiq '(^|[^[:alpha:]])(error|fatal|panic)([^[:alpha:]]|$)' "$tier_dir/redis-errors.txt" && reason="Redis emitted an error"
-    [[ ! -e "$tier_dir/sustained-overload.failed" ]] || reason="host CPU exceeded 90% for 12 consecutive samples"
-    [[ "$drops_before" == "$drops_after" ]] || reason="actionable drop counter increased"
-    [[ "$throttles_before" == "$throttles_after" ]] || reason="REST throttle counter increased"
-    awk "BEGIN{exit !($peak_connections >= $baseline_connections + $tier)}" || reason="not every intended WebSocket upgrade was observed"
-    baseline_subscriptions=$(awk -F, 'NR==2 && $3 ~ /^[0-9.]+$/ {print $3+0}' "$tier_dir/prometheus-samples.csv")
-    baseline_subscriptions=${baseline_subscriptions:-0}
-    awk "BEGIN{exit !($peak_subscriptions >= $baseline_subscriptions + $tier)}" || reason="not every intended public subscription was observed"
-    [[ "$same_before" != x && "$cross_before" != x ]] && awk "BEGIN{exit !($same_after>$same_before && $cross_after>$cross_before)}" || reason="same-node and cross-node delivery series did not both increase"
-    compose_healthy || reason="Compose health postflight failed"
-    if [[ -n "$reason" ]]; then stop_reason="tier $tier failed: $reason"; printf 'failed\n%s\n' "$reason" >"$tier_dir/result.txt"; break; fi
+    target_connections=$(awk "BEGIN{print $baseline_connections+$tier}")
+    target_subscriptions=$(awk "BEGIN{print $baseline_subscriptions+$tier}")
+    sustained_target_samples=$(awk -F, -v c="$target_connections" -v s="$target_subscriptions" 'NR>1 {if ($2+0>=c && $3+0>=s) {n++; if(n>m)m=n} else n=0} END{print m+0}' "$tier_dir/prometheus-samples.csv")
+    printf 'peak_connections=%s\npeak_subscriptions=%s\nsustained_target_samples=%s\n' "$peak_connections" "$peak_subscriptions" "$sustained_target_samples" >>"$tier_dir/peaks.txt"
+    reasons=()
+    (( k6_status == 0 )) || reasons+=("k6 threshold or scenario failure")
+    cmp -s "$tier_dir/container-state-before.txt" "$tier_dir/container-state-after.txt" || reasons+=("container restart, OOM, health, or image changed")
+    grep -Eiq '(^|[^[:alpha:]])(error|fatal|panic)([^[:alpha:]]|$)' "$tier_dir/redis-errors.txt" && reasons+=("Redis emitted an error")
+    [[ ! -e "$tier_dir/sustained-overload.failed" ]] || reasons+=("host CPU exceeded 90% for 12 consecutive samples")
+    [[ "$drops_before" == "$drops_after" ]] || reasons+=("actionable drop counter increased")
+    [[ "$throttles_before" == "$throttles_after" ]] || reasons+=("REST throttle counter increased")
+    awk "BEGIN{exit !($peak_connections >= $target_connections)}" || reasons+=("not every intended WebSocket upgrade was observed")
+    awk "BEGIN{exit !($peak_subscriptions >= $target_subscriptions)}" || reasons+=("not every intended public subscription was observed")
+    (( sustained_target_samples >= 48 )) || reasons+=("target connections and subscriptions were not sustained for four minutes")
+    [[ "$same_before" != x && "$cross_before" != x ]] && awk "BEGIN{exit !($same_after>$same_before && $cross_after>$cross_before)}" || reasons+=("same-node and cross-node delivery series did not both increase")
+    compose_healthy || reasons+=("Compose health postflight failed")
+    if (( ${#reasons[@]} )); then
+      printf 'failed\n' >"$tier_dir/result.txt"
+      printf '%s\n' "${reasons[@]}" | tee -a "$tier_dir/result.txt" >"$tier_dir/failure-reasons.txt"
+      reason_text=$(IFS='; '; echo "${reasons[*]}")
+      stop_reason="tier $tier failed: $reason_text"
+      break
+    fi
     printf 'passed\n' >"$tier_dir/result.txt"; last_passing=$tier
     wait_for_recovery "$baseline_reserved" "$baseline_connections" "$app_id" || { stop_reason="recovery after tier $tier timed out"; break; }
   done
