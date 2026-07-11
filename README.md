@@ -37,8 +37,9 @@ Implemented:
 | Redis heartbeat and dead-node cleanup | Done |
 | Connection caps and REST publish limits | Done |
 | Docker Compose cluster | Done; two-node VPS smoke passed |
-| Prometheus metrics and Grafana dashboard | Planned |
-| k6 load-test writeup with measured results | Planned |
+| Prometheus metrics and Grafana dashboard | Implemented; VPS acceptance pending |
+| k6 harness | Implemented; VPS acceptance pending |
+| Measured load-test results | Pending; no estimates published |
 
 No performance numbers are claimed until they are measured and committed with
 the load-test report.
@@ -59,6 +60,29 @@ PulseWS targets that migration path:
 - Redis pub/sub for multi-node delivery.
 - Per-app credentials, limits, rate limiting, and Prometheus metrics.
 - k6 scenarios that publish measured connection and latency results.
+
+## Architecture
+
+![PulseWS production architecture](docs/architecture.svg)
+
+Host nginx and Certbot terminate public TLS and proxy to the localhost-bound
+Compose nginx service. Compose balances WebSockets and REST requests across
+two PulseWS nodes. Redis owns event fan-out, presence, connection reservations,
+and node liveness; Prometheus and Grafana remain operator-only services.
+
+## Compatibility
+
+| Pusher-compatible surface | Status |
+|---|---|
+| Protocol 7 connection handshake and ping/pong | Supported |
+| Public channels | Supported |
+| Private-channel authentication | Supported |
+| Presence rosters and member events | Supported |
+| Client events on private/presence channels | Supported |
+| Official Node SDK signed event publishing | Supported |
+| Multi-channel publish and socket exclusion | Supported |
+| Webhooks | Not implemented |
+| Encrypted channels | Not implemented |
 
 ## Development
 
@@ -121,6 +145,18 @@ GHCR, so local Docker is not required on Windows. Copy the external config
 example, replace its secret, and follow the deployment README. The M3 cluster
 milestone passed on the Ubuntu VPS with distinct-node routing, cross-node
 presence, nginx demo authorization, and signed REST delivery.
+
+Prometheus, Grafana, and the two direct node diagnostic ports bind only to
+localhost. Use SSH port forwarding for operator access, for example:
+
+```sh
+ssh -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 user@your-vps
+```
+
+Deployment, TLS migration, secret rotation, backups, rollback, recovery,
+firewall, failover, and load-test procedures are documented in the
+[deployment runbook](deploy/README.md). The [load-test report](docs/loadtest.md)
+will contain only measured results from the target VPS.
 
 ## Browser Demo
 
