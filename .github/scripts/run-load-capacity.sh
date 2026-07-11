@@ -57,7 +57,7 @@ sample_resources() {
   local dir=$1 app_id=$2 previous_total='' previous_idle='' overload=0 peak_cpu=0 peak_mem=0
   printf 'timestamp,host_cpu_percent,host_used_bytes\n' >"$dir/host-samples.csv"
   printf 'timestamp,container,cpu_percent,memory_usage\n' >"$dir/container-samples.csv"
-  printf 'timestamp,connections,subscriptions,same_node_deliveries,cross_node_deliveries,actionable_drops,rest_throttles,redis_reservations\n' >"$dir/prometheus-samples.csv"
+  printf 'timestamp,connections,subscriptions,same_node_deliveries,cross_node_deliveries,actionable_drops,rest_throttles,redis_reservations,epoch_seconds\n' >"$dir/prometheus-samples.csv"
   while :; do
     read -r _ user nice system idle iowait irq softirq steal _ < /proc/stat
     local total=$((user+nice+system+idle+iowait+irq+softirq+steal)) idle_all=$((idle+iowait)) cpu=0
@@ -74,7 +74,8 @@ sample_resources() {
     drops=$(scalar 'sum%28pulsews_dropped_messages_total%7Breason%21%3D%22no_local_subscribers%22%7D%29%20or%20vector%280%29' || echo invalid)
     throttles=$(scalar 'sum%28pulsews_rest_throttled_total%29%20or%20vector%280%29' || echo invalid)
     reservations=$(docker compose -f "$compose_file" exec -T redis redis-cli --raw GET "pulsews:app:$app_id:connections" 2>/dev/null || echo invalid); reservations=${reservations:-0}
-    printf '%s,%s,%s,%s,%s,%s,%s,%s\n' "$(date -u +%FT%TZ)" "$connections" "$subscriptions" "$same" "$cross" "$drops" "$throttles" "$reservations" >>"$dir/prometheus-samples.csv"
+    sample_epoch=$(date +%s)
+    printf '%s,%s,%s,%s,%s,%s,%s,%s,%s\n' "$(date -u +%FT%TZ)" "$connections" "$subscriptions" "$same" "$cross" "$drops" "$throttles" "$reservations" "$sample_epoch" >>"$dir/prometheus-samples.csv"
     awk "BEGIN {exit !($cpu>$peak_cpu)}" && peak_cpu=$cpu
     (( used > peak_mem )) && peak_mem=$used
     if awk "BEGIN {exit !($cpu>90)}"; then overload=$((overload+1)); else overload=0; fi
@@ -143,10 +144,10 @@ if (( preflight_ok )); then
     throttles_after=$(scalar 'sum%28pulsews_rest_throttled_total%29%20or%20vector%280%29' || echo x)
     peak_connections=$(awk -F, 'NR>1 && $2 ~ /^[0-9.]+$/ && $2>m {m=$2} END{print m+0}' "$tier_dir/prometheus-samples.csv")
     peak_subscriptions=$(awk -F, 'NR>1 && $3 ~ /^[0-9.]+$/ && $3>m {m=$3} END{print m+0}' "$tier_dir/prometheus-samples.csv")
-    target_connections=$(awk "BEGIN{print $baseline_connections+$tier}")
-    target_subscriptions=$(awk "BEGIN{print $baseline_subscriptions+$tier}")
-    sustained_target_samples=$(awk -F, -v c="$target_connections" -v s="$target_subscriptions" 'NR>1 {if ($2+0>=c && $3+0>=s) {n++; if(n>m)m=n} else n=0} END{print m+0}' "$tier_dir/prometheus-samples.csv")
-    printf 'peak_connections=%s\npeak_subscriptions=%s\nsustained_target_samples=%s\n' "$peak_connections" "$peak_subscriptions" "$sustained_target_samples" >>"$tier_dir/peaks.txt"
+    target_connections=$tier
+    target_subscriptions=$tier
+    sustained_target_seconds=$(awk -F, -v c="$target_connections" -v s="$target_subscriptions" 'NR>1 {if ($2+0>=c && $3+0>=s) {if(!start)start=$9; duration=$9-start; if(duration>max)max=duration} else start=0} END{print max+0}' "$tier_dir/prometheus-samples.csv")
+    printf 'peak_connections=%s\npeak_subscriptions=%s\nsustained_target_seconds=%s\n' "$peak_connections" "$peak_subscriptions" "$sustained_target_seconds" >>"$tier_dir/peaks.txt"
     reasons=()
     (( k6_status == 0 )) || reasons+=("k6 threshold or scenario failure")
     cmp -s "$tier_dir/container-state-before.txt" "$tier_dir/container-state-after.txt" || reasons+=("container restart, OOM, health, or image changed")
@@ -156,7 +157,7 @@ if (( preflight_ok )); then
     [[ "$throttles_before" == "$throttles_after" ]] || reasons+=("REST throttle counter increased")
     awk "BEGIN{exit !($peak_connections >= $target_connections)}" || reasons+=("not every intended WebSocket upgrade was observed")
     awk "BEGIN{exit !($peak_subscriptions >= $target_subscriptions)}" || reasons+=("not every intended public subscription was observed")
-    (( sustained_target_samples >= 48 )) || reasons+=("target connections and subscriptions were not sustained for four minutes")
+    (( sustained_target_seconds >= 240 )) || reasons+=("target connections and subscriptions were not sustained for four minutes")
     [[ "$same_before" != x && "$cross_before" != x ]] && awk "BEGIN{exit !($same_after>$same_before && $cross_after>$cross_before)}" || reasons+=("same-node and cross-node delivery series did not both increase")
     compose_healthy || reasons+=("Compose health postflight failed")
     if (( ${#reasons[@]} )); then

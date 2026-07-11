@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: production-load-capacity
+  group: production-load-benchmark
   cancel-in-progress: false
 
 jobs:

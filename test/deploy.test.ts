@@ -129,6 +129,7 @@ describe("production container and Compose cluster", () => {
     ]);
 
     expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("group: production-load-benchmark");
     expect(workflow).toContain("image_tag:");
     expect(workflow).toContain("retention_days:");
     expect(workflow).toContain("if: ${{ always() }}");
@@ -201,6 +202,7 @@ describe("production container and Compose cluster", () => {
     ]);
 
     expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("group: production-load-benchmark");
     expect(workflow).toContain("run-load-capacity.sh");
     expect(workflow).toContain('run_id="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"');
     expect(workflow).toContain("pulsews-capacity-$run_id.env");
@@ -228,7 +230,7 @@ describe("production container and Compose cluster", () => {
     expect(runner).toContain("pulsews-a.log");
     expect(runner).toContain("pulsews-b.log");
     expect(runner).toContain("failure-reasons.txt");
-    expect(runner).toContain("sustained_target_samples >= 48");
+    expect(runner).toContain("sustained_target_seconds >= 240");
     expect(runner).toContain("not every intended WebSocket upgrade was observed");
     expect(runner).toContain("not every intended public subscription was observed");
     expect(runner).toContain("redis-errors.txt");
