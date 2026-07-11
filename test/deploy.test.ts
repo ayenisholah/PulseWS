@@ -68,6 +68,16 @@ describe("production container and Compose cluster", () => {
     ]) {
       expect(dashboard).toContain(metric);
     }
+
+    const provisionedDashboard = JSON.parse(dashboard) as {
+      uid?: string;
+      panels?: Array<{ title?: string; datasource?: { uid?: string } }>;
+    };
+    expect(provisionedDashboard.uid).toBe("pulsews-overview");
+    expect(provisionedDashboard.panels).toHaveLength(7);
+    expect(provisionedDashboard.panels?.every(
+      (panel) => panel.datasource?.uid === "pulsews-prometheus",
+    )).toBe(true);
   });
 
   test("keeps the mounted secret config out of git", async () => {
