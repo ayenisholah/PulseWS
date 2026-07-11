@@ -84,6 +84,14 @@ describe("production container and Compose cluster", () => {
     const gitignore = await read(".gitignore");
     expect(gitignore).toContain("deploy/pulsews.config.json");
   });
+
+  test("isolates each cluster smoke run from public presence traffic", async () => {
+    const smoke = await read("scripts/cluster-smoke.ts");
+
+    expect(smoke).toContain("GITHUB_RUN_ID");
+    expect(smoke).toContain("GITHUB_RUN_ATTEMPT");
+    expect(smoke).toContain("randomUUID()");
+  });
 });
 
 function read(path: string): Promise<string> {

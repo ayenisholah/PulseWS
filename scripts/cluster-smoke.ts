@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import { randomUUID } from "node:crypto";
 
 import PusherServer from "pusher";
 
@@ -34,7 +35,9 @@ const appId = process.env.PULSEWS_APP_ID ?? "demo-app";
 const appKey = process.env.PULSEWS_APP_KEY ?? "demo-key";
 const appSecret =
   process.env.PULSEWS_APP_SECRET ?? "replace-with-a-long-random-secret";
-const channelName = process.env.PULSEWS_PRESENCE_CHANNEL ?? "presence-demo";
+const channelName =
+  process.env.PULSEWS_PRESENCE_CHANNEL ??
+  `presence-smoke-${process.env.GITHUB_RUN_ID ?? randomUUID()}-${process.env.GITHUB_RUN_ATTEMPT ?? "1"}`;
 const clients: PusherClient[] = [];
 
 try {
@@ -61,7 +64,9 @@ try {
   await waitForChannelEvent(secondChannel, "pusher:subscription_succeeded");
   await memberAdded;
   if (firstChannel.members.count !== 2 || secondChannel.members.count !== 2) {
-    throw new Error("Cluster presence roster did not reach two unique members");
+    throw new Error(
+      `Cluster presence roster did not reach two unique members (first=${firstChannel.members.count}, second=${secondChannel.members.count}, channel=${channelName})`,
+    );
   }
 
   const eventOnFirst = waitForChannelEvent(firstChannel, "smoke.event");
@@ -91,6 +96,7 @@ try {
         { socketId: secondConnection, nodeId: secondNode },
       ],
       presenceCount: secondChannel.members.count,
+      presenceChannel: channelName,
       restPublishStatus: response.status,
       demoAuthorization: "passed through nginx",
     }),
