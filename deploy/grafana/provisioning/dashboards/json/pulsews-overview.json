@@ -71,6 +71,36 @@
       "targets": [{ "expr": "sum by (app_id) (increase(pulsews_rest_throttled_total[5m]))", "legendFormat": "{{app_id}}", "refId": "A" }],
       "title": "REST throttling",
       "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "pulsews-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "id": 8,
+      "targets": [
+        { "expr": "sum by (job) (pulsews_process_resident_memory_bytes)", "legendFormat": "resident", "refId": "A" },
+        { "expr": "sum by (job) (pulsews_nodejs_heap_size_used_bytes)", "legendFormat": "heap used", "refId": "B" }
+      ],
+      "title": "Process memory",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "pulsews-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 24 },
+      "id": 9,
+      "targets": [{ "expr": "sum(rate(pulsews_process_cpu_seconds_total[1m]))", "legendFormat": "CPU", "refId": "A" }],
+      "title": "Process CPU",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "pulsews-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 24 },
+      "id": 10,
+      "targets": [{ "expr": "max(pulsews_nodejs_eventloop_lag_p99_seconds)", "legendFormat": "p99", "refId": "A" }],
+      "title": "Event-loop lag",
+      "type": "timeseries"
     }
   ],
   "refresh": "5s",

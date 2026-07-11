@@ -197,6 +197,9 @@ describe("uWS server handshake", () => {
     expect(exposition).toContain(
       'pulsews_subscriptions{app_id="demo-app",channel_type="public"} 1',
     );
+    expect(exposition).toContain("pulsews_process_resident_memory_bytes");
+    expect(exposition).toContain("pulsews_process_cpu_seconds_total");
+    expect(exposition).toContain("pulsews_nodejs_eventloop_lag_p99_seconds");
     expect(exposition).toContain(
       'pulsews_client_event_rejections_total{app_id="demo-app",reason="invalid_channel"} 1',
     );

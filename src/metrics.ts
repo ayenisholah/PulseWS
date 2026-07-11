@@ -1,4 +1,5 @@
 import {
+  collectDefaultMetrics,
   Counter,
   Gauge,
   Histogram,
@@ -55,6 +56,11 @@ export class PulseWsMetrics {
   });
 
   constructor(appIds: readonly string[]) {
+    collectDefaultMetrics({
+      register: this.registry,
+      prefix: "pulsews_",
+      eventLoopMonitoringPrecision: 10,
+    });
     for (const appId of appIds) {
       this.connections.set({ app_id: appId }, 0);
       for (const channelType of ["public", "private", "presence"]) {
