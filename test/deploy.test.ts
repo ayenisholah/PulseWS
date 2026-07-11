@@ -116,6 +116,33 @@ describe("production container and Compose cluster", () => {
     expect(workflow).toContain("start pulsews-a");
     expect(workflow).toContain('test "$smoke_status" -eq 0');
   });
+
+  test("provides a fixed, evidence-preserving 500-connection acceptance gate", async () => {
+    const [workflow, runner] = await Promise.all([
+      read(".github/workflows/load-acceptance.yml"),
+      read(".github/scripts/run-load-acceptance.sh"),
+    ]);
+
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("image_tag:");
+    expect(workflow).toContain("retention_days:");
+    expect(workflow).toContain("if: ${{ always() }}");
+    expect(workflow).toContain("actions/upload-artifact@v4");
+    expect(workflow).toContain("npm run smoke:cluster");
+    expect(workflow).toContain("rm -f '/tmp/pulsews-load-$RUN_ID.env'");
+    expect(runner).toContain("grafana/k6:2.0.0");
+    expect(runner).toContain("--network host");
+    expect(runner).toContain("--env-file");
+    expect(runner).toContain("PULSEWS_VUS=500");
+    expect(runner).toContain("PULSEWS_RATE=50");
+    expect(runner).toContain("PULSEWS_DURATION=5m");
+    expect(runner).toContain("PULSEWS_ITERATIONS=100");
+    expect(runner).toContain("same-node-500");
+    expect(runner).toContain("cross-node-500");
+    expect(runner).toContain("prometheus-targets.json");
+    expect(runner).toContain("Contention disclosure:");
+    expect(runner).toContain("postflight || overall_status=1");
+  });
 });
 
 function read(path: string): Promise<string> {
