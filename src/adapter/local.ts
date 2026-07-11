@@ -3,19 +3,7 @@ import {
   channelEventMessageFromEncodedData,
   encodePusherMessage,
 } from "../protocol.js";
-
-export type EventPublish = {
-  appId: string;
-  channel: string;
-  event: string;
-  data: string;
-  excludeSocket?: string;
-  userId?: string;
-};
-
-export interface EventAdapter {
-  publish(event: EventPublish): boolean;
-}
+import type { EventAdapter, EventPublish } from "./types.js";
 
 export type LocalEventSocket = {
   getUserData: () => {
@@ -36,7 +24,13 @@ export class LocalEventAdapter implements EventAdapter {
     private readonly socketsById: ReadonlyMap<string, LocalEventSocket>,
   ) {}
 
-  publish(event: EventPublish): boolean {
+  async initialize(): Promise<void> {}
+
+  async publish(event: EventPublish): Promise<boolean> {
+    return this.receive(event);
+  }
+
+  receive(event: EventPublish): boolean {
     const topic = topicFor(event.appId, event.channel);
     const excludedSocket = event.excludeSocket
       ? this.socketsById.get(event.excludeSocket)
@@ -78,4 +72,8 @@ export class LocalEventAdapter implements EventAdapter {
       }
     }
   }
+
+  async close(): Promise<void> {}
 }
+
+export type { EventAdapter, EventPublish } from "./types.js";

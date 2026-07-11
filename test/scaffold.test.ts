@@ -29,8 +29,9 @@ describe("TypeScript project scaffold", () => {
     });
   });
 
-  test("keeps dependencies within the W1D1-1 allowlist", () => {
+  test("keeps dependencies within the approved allowlist", () => {
     expect(Object.keys(packageJson.dependencies).sort()).toEqual([
+      "ioredis",
       "pino",
       "uWebSockets.js",
       "zod",

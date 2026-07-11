@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
 
+import pino from "pino";
 import uWS, { type us_listen_socket } from "uWebSockets.js";
 
 import {
-  type EventAdapter,
   LocalEventAdapter,
   type LocalEventSocket,
 } from "./adapter/local.js";
+import { RedisEventAdapter } from "./adapter/redis.js";
+import type { EventAdapter } from "./adapter/types.js";
 import {
   verifyPrivateChannelAuth,
   verifyPresenceChannelAuth,
@@ -79,8 +81,8 @@ export type PulseWsServer = {
     channel: string,
     event: string,
     data: unknown,
-  ) => boolean;
-  close: () => void;
+  ) => Promise<boolean>;
+  close: () => Promise<void>;
 };
 
 export type ServerTimingOptions = {
@@ -101,9 +103,23 @@ export async function startServer(
   const app = uWS.App();
   const acceptedSockets = new Set<uWS.WebSocket<SocketData>>();
   const acceptedSocketsById = new Map<string, LocalEventSocket>();
-  const adapter = new LocalEventAdapter(app, acceptedSocketsById);
   const presence = new LocalPresenceRegistry();
   const nodeId = randomUUID();
+  const logger = pino();
+  const localAdapter = new LocalEventAdapter(app, acceptedSocketsById);
+  const adapter: EventAdapter = config.redisUrl
+    ? new RedisEventAdapter(
+        config.redisUrl,
+        config.apps.map((configuredApp) => configuredApp.id),
+        nodeId,
+        localAdapter,
+        {
+          warn: (details, message) => logger.warn(details, message),
+          error: (details, message) => logger.error(details, message),
+        },
+      )
+    : localAdapter;
+  await adapter.initialize();
   const activityTimeoutSeconds =
     timing.activityTimeoutSeconds ?? DEFAULT_ACTIVITY_TIMEOUT_SECONDS;
   const activityGraceSeconds =
@@ -279,27 +295,31 @@ export async function startServer(
         return;
       }
 
-      res.cork(() => {
-        if (!authorized || !configuredApp) {
+      if (!authorized || !configuredApp) {
+        res.cork(() => {
           res
             .writeStatus("401 Unauthorized")
             .writeHeader("content-type", "application/json")
             .end("{}");
-          return;
-        }
+        });
+        return;
+      }
 
-        let publishRequest;
-        try {
-          publishRequest = parsePublishRequest(rawBody);
-        } catch {
+      let publishRequest;
+      try {
+        publishRequest = parsePublishRequest(rawBody);
+      } catch {
+        res.cork(() => {
           res
             .writeStatus("400 Bad Request")
             .writeHeader("content-type", "application/json")
             .end("{}");
-          return;
-        }
+        });
+        return;
+      }
 
-        for (const channel of publishRequest.channels) {
+      void Promise.all(
+        publishRequest.channels.map((channel) =>
           adapter.publish({
             appId: configuredApp.id,
             channel,
@@ -308,18 +328,44 @@ export async function startServer(
             ...(publishRequest.socketId === undefined
               ? {}
               : { excludeSocket: publishRequest.socketId }),
-          });
-        }
-
-        res
-          .writeStatus("200 OK")
-          .writeHeader("content-type", "application/json")
-          .end("{}");
-      });
+          }),
+        ),
+      ).then(
+        () => {
+          if (!aborted) {
+            res.cork(() => {
+              res
+                .writeStatus("200 OK")
+                .writeHeader("content-type", "application/json")
+                .end("{}");
+            });
+          }
+        },
+        (error: unknown) => {
+          logger.error(
+            { error: formatError(error), appId: configuredApp.id },
+            "REST event publish failed",
+          );
+          if (!aborted) {
+            res.cork(() => {
+              res
+                .writeStatus("503 Service Unavailable")
+                .writeHeader("content-type", "application/json")
+                .end("{}");
+            });
+          }
+        },
+      );
     });
   });
 
-  const listenSocket = await listen(app, config.port);
+  let listenSocket: us_listen_socket;
+  try {
+    listenSocket = await listen(app, config.port);
+  } catch (error) {
+    await adapter.close();
+    throw error;
+  }
   const boundPort = uWS.us_socket_local_port(listenSocket);
   const staleAfterMilliseconds =
     (activityTimeoutSeconds + activityGraceSeconds) * 1_000;
@@ -338,6 +384,7 @@ export async function startServer(
   }, reaperIntervalMilliseconds);
   reaper.unref();
 
+  let closePromise: Promise<void> | undefined;
   return {
     port: boundPort,
     nodeId,
@@ -349,8 +396,12 @@ export async function startServer(
         data: encodePusherData(data),
       }),
     close: () => {
-      clearInterval(reaper);
-      uWS.us_listen_socket_close(listenSocket);
+      closePromise ??= (async () => {
+        clearInterval(reaper);
+        uWS.us_listen_socket_close(listenSocket);
+        await adapter.close();
+      })();
+      return closePromise;
     },
   };
 }
@@ -520,7 +571,7 @@ function handleSubscribe(
     }
 
     if (joined.memberAdded) {
-      adapter.publish({
+      void adapter.publish({
         appId: data.app.id,
         channel: validation.channel,
         event: "pusher_internal:member_added",
@@ -528,7 +579,7 @@ function handleSubscribe(
           user_id: presenceMember.userId,
           user_info: presenceMember.userInfo,
         }),
-      });
+      }).catch(() => undefined);
     }
 
     const topic = topicFor(data.app.id, validation.channel);
@@ -612,14 +663,14 @@ function handleClientEvent(
     channelType === "presence"
       ? data.presenceMemberships.get(channel)?.userId
       : undefined;
-  adapter.publish({
+  void adapter.publish({
     appId: data.app.id,
     channel,
     event: message.event,
     data: encodePusherData(message.data),
     excludeSocket: data.socketId,
     ...(presenceUserId === undefined ? {} : { userId: presenceUserId }),
-  });
+  }).catch(() => undefined);
 }
 
 function leavePresenceChannel(
@@ -633,12 +684,12 @@ function leavePresenceChannel(
     return;
   }
 
-  adapter.publish({
+  void adapter.publish({
     appId: data.app.id,
     channel,
     event: "pusher_internal:member_removed",
     data: encodePusherData({ user_id: left.member.userId }),
-  });
+  }).catch(() => undefined);
 }
 
 function readSubscriptionFromPayload(

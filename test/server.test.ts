@@ -79,11 +79,10 @@ afterEach(async () => {
     socket.close();
   }
 
-  for (const server of servers.splice(0)) {
-    server.close();
-  }
-
-  await Promise.all(authServers.splice(0).map((server) => server.close()));
+  await Promise.all([
+    ...servers.splice(0).map((server) => server.close()),
+    ...authServers.splice(0).map((server) => server.close()),
+  ]);
 });
 
 describe("uWS server handshake", () => {
@@ -195,7 +194,9 @@ describe("public channels", () => {
     await waitForChannelEvent(channel, "pusher:subscription_succeeded");
 
     const delivered = waitForChannelEvent(channel, "demo.event");
-    server.publish("demo-app", "public-updates", "demo.event", { ok: true });
+    await server.publish("demo-app", "public-updates", "demo.event", {
+      ok: true,
+    });
 
     await expect(delivered).resolves.toEqual({ ok: true });
 
@@ -207,9 +208,12 @@ describe("public channels", () => {
       "demo.event.after-unsubscribe",
       150,
     );
-    server.publish("demo-app", "public-updates", "demo.event.after-unsubscribe", {
-      ok: false,
-    });
+    await server.publish(
+      "demo-app",
+      "public-updates",
+      "demo.event.after-unsubscribe",
+      { ok: false },
+    );
 
     await expect(unexpectedDelivery).resolves.toBeUndefined();
   });
@@ -314,7 +318,9 @@ describe("private channels", () => {
       waitForChannelEvent(channel, "pusher:subscription_succeeded"),
     ).resolves.toEqual({});
     const delivered = waitForChannelEvent(channel, "private.event");
-    server.publish("demo-app", "private-room", "private.event", { ok: true });
+    await server.publish("demo-app", "private-room", "private.event", {
+      ok: true,
+    });
     await expect(delivered).resolves.toEqual({ ok: true });
   });
 
@@ -337,7 +343,7 @@ describe("private channels", () => {
         "private.event",
         150,
       );
-      server.publish("demo-app", "private-room", "private.event", {
+      await server.publish("demo-app", "private-room", "private.event", {
         ok: false,
       });
       await expect(unexpectedDelivery).resolves.toBeUndefined();

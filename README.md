@@ -12,8 +12,9 @@ observability, and measured load-test results.
 Pre-alpha. The TypeScript scaffold, validated config loading,
 uWebSockets.js handshake, public channels, connection liveness, and the signed
 REST publishing and the single-node MVP are in place, including public,
-private, and presence channels, rate-limited client events, and an opt-in live
-browser demo. The next milestone is Redis-backed multi-node fan-out.
+private, and presence channels, rate-limited client events, an opt-in live
+browser demo, and Redis-backed multi-node event fan-out. The next step is
+cluster-wide presence state.
 
 Implemented:
 
@@ -30,7 +31,7 @@ Implemented:
 | Client events and per-connection rate limiting | Done |
 | Presence channels | Done (single node) |
 | Integrated browser demo | Done |
-| Redis fan-out adapter | Planned |
+| Redis fan-out adapter | Done |
 | Prometheus metrics and Grafana dashboard | Planned |
 | k6 load-test writeup with measured results | Planned |
 
@@ -60,6 +61,7 @@ Requirements:
 
 - Node.js 22+
 - npm
+- Redis 7 when `redisUrl` is configured
 - Bash or Git Bash if you want to run `scripts/verify.sh`
 
 Install dependencies:
@@ -81,6 +83,16 @@ policy bypass:
 powershell -ExecutionPolicy Bypass -File scripts\verify.ps1
 ```
 
+When `redisUrl` is omitted, PulseWS uses in-process delivery. When it is
+configured, each node opens dedicated Redis publisher and subscriber
+connections and subscribes once per app. Events are delivered on every node,
+including the publisher, only after the Redis echo. A configured node fails
+startup if Redis is unavailable; it never silently falls back to isolated
+local delivery.
+
+The two-node integration test runs when `PULSEWS_TEST_REDIS_URL` is set. CI
+provisions Redis 7 and always runs this gate.
+
 ## Browser Demo
 
 The example configuration enables an anonymous guest demo for one presence
@@ -94,7 +106,9 @@ npm run dev
 Open a second tab to watch the presence roster update and exchange client
 events. The `demo` configuration is optional; when omitted, the page and its
 restricted guest authorization route are not registered. Demo authorization
-is for local compatibility testing, not application identity.
+is for local compatibility testing, not application identity. The example
+config enables Redis at `redis://localhost:6379`; remove `redisUrl` for a
+single-node local demo without Redis.
 
 ## Roadmap
 

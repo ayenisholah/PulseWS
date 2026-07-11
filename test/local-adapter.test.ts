@@ -13,11 +13,11 @@ const event = {
 };
 
 describe("local event adapter", () => {
-  test("publishes encoded data once to the uWS app topic", () => {
+  test("publishes encoded data once to the uWS app topic", async () => {
     const app = { publish: vi.fn(() => true) };
     const adapter = new LocalEventAdapter(app, new Map());
 
-    expect(adapter.publish(event)).toBe(true);
+    await expect(adapter.publish(event)).resolves.toBe(true);
     expect(app.publish).toHaveBeenCalledWith(
       "demo-app/public-updates",
       JSON.stringify({
@@ -28,11 +28,11 @@ describe("local event adapter", () => {
     );
   });
 
-  test("includes presence user metadata when supplied", () => {
+  test("includes presence user metadata when supplied", async () => {
     const app = { publish: vi.fn(() => true) };
     const adapter = new LocalEventAdapter(app, new Map());
 
-    adapter.publish({ ...event, userId: "user-1" });
+    await adapter.publish({ ...event, userId: "user-1" });
 
     expect(app.publish).toHaveBeenCalledWith(
       "demo-app/public-updates",
@@ -45,7 +45,7 @@ describe("local event adapter", () => {
     );
   });
 
-  test("temporarily unsubscribes an excluded subscriber and safely restores it", () => {
+  test("temporarily unsubscribes an excluded subscriber and safely restores it", async () => {
     const socket = createSocket([event.channel]);
     const app = {
       publish: vi.fn(() => {
@@ -61,12 +61,12 @@ describe("local event adapter", () => {
       new Map([["123.456", socket]]),
     );
 
-    adapter.publish({ ...event, excludeSocket: "123.456" });
+    await adapter.publish({ ...event, excludeSocket: "123.456" });
 
     expect(socket.subscribe).toHaveBeenCalledWith("demo-app/public-updates");
   });
 
-  test("does not touch absent, unsubscribed, or closed excluded sockets", () => {
+  test("does not touch absent, unsubscribed, or closed excluded sockets", async () => {
     for (const socket of [createSocket([]), createSocket([event.channel], true)]) {
       const app = { publish: vi.fn(() => true) };
       const adapter = new LocalEventAdapter(
@@ -74,21 +74,21 @@ describe("local event adapter", () => {
         new Map([["123.456", socket]]),
       );
 
-      adapter.publish({ ...event, excludeSocket: "123.456" });
+      await adapter.publish({ ...event, excludeSocket: "123.456" });
 
       expect(socket.unsubscribe).not.toHaveBeenCalled();
       expect(socket.subscribe).not.toHaveBeenCalled();
     }
 
     const app = { publish: vi.fn(() => true) };
-    new LocalEventAdapter(app, new Map()).publish({
+    await new LocalEventAdapter(app, new Map()).publish({
       ...event,
       excludeSocket: "missing.1",
     });
     expect(app.publish).toHaveBeenCalledOnce();
   });
 
-  test("does not resubscribe a socket that closes during synchronous publish", () => {
+  test("does not resubscribe a socket that closes during synchronous publish", async () => {
     const socket = createSocket([event.channel]);
     const app = {
       publish: vi.fn(() => {
@@ -101,10 +101,19 @@ describe("local event adapter", () => {
       new Map([["123.456", socket]]),
     );
 
-    adapter.publish({ ...event, excludeSocket: "123.456" });
+    await adapter.publish({ ...event, excludeSocket: "123.456" });
 
     expect(socket.unsubscribe).toHaveBeenCalledOnce();
     expect(socket.subscribe).not.toHaveBeenCalled();
+  });
+
+  test("supports idempotent no-op lifecycle operations", async () => {
+    const adapter = new LocalEventAdapter({ publish: () => true }, new Map());
+
+    await expect(adapter.initialize()).resolves.toBeUndefined();
+    await expect(adapter.initialize()).resolves.toBeUndefined();
+    await expect(adapter.close()).resolves.toBeUndefined();
+    await expect(adapter.close()).resolves.toBeUndefined();
   });
 });
 

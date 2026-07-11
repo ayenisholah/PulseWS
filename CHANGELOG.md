@@ -33,6 +33,9 @@ release.
   rosters, join/leave events, and disconnect cleanup.
 - Opt-in integrated browser demo with live node and connection state, presence
   roster, bounded event log, and peer client-event controls.
+- Redis event adapter with dedicated publisher/subscriber connections,
+  per-app fan-out channels, echo-path local delivery, socket exclusion, and
+  conditional two-node integration coverage backed by Redis 7 in CI.
 
 ### Changed
 

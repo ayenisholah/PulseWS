@@ -33,6 +33,7 @@
     "verify": "npm run build && npm run lint && npm run test"
   },
   "dependencies": {
+    "ioredis": "5.11.1",
     "pino": "10.3.1",
     "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.68.0",
     "zod": "4.4.3"
