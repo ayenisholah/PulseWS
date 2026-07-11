@@ -33,7 +33,9 @@ delivery latency above 40 ms. Do not extrapolate the next tier; the last fully
 passing tier is the stable maximum.
 
 The `Measured Capacity Benchmark` workflow automates that sequence against
-production nginx. It requires the deployed app cap to be exactly 12,000 and
+production nginx over its VPS-local port (`http://127.0.0.1:8080`), avoiding
+public DNS, TLS-edge, NAT, and hairpin limits while retaining the public URL
+for the final production smoke. It requires the deployed app cap to be exactly 12,000 and
 at least 10,000 connections of current headroom. Each tier ramps for five
 minutes, holds for five minutes at 50 signed REST publishes/second across 100
 public channels, captures five-second resource samples, and uploads a

@@ -212,6 +212,9 @@ describe("production container and Compose cluster", () => {
     expect(workflow).toContain("rm -f '/tmp/pulsews-capacity-$RUN_ID.env'");
     expect(runner).toContain("readonly tiers=(1000 2500 5000 7500 10000)");
     expect(runner).toContain("readonly required_cap=12000");
+    expect(runner).toContain("readonly capacity_url=http://127.0.0.1:8080");
+    expect(runner).toContain('-e "PULSEWS_URL=$capacity_url"');
+    expect(runner).toContain("endpoints.txt");
     expect(runner).toContain('required_headroom=10000');
     expect(runner).toContain('break');
     expect(runner).toContain("wait_for_recovery");

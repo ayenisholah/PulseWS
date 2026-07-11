@@ -8,6 +8,7 @@ readonly credentials_file="${2:?credentials file is required}"
 readonly expected_image="${3:?expected image is required}"
 readonly k6_image=grafana/k6:2.0.0
 readonly required_cap=12000
+readonly capacity_url=http://127.0.0.1:8080
 readonly tiers=(1000 2500 5000 7500 10000)
 
 mkdir -p "$results_dir" && chmod 700 "$results_dir"
@@ -93,6 +94,7 @@ capture "$results_dir/host.txt" sh -c 'uname -a; lscpu; free -h; ulimit -n'
 capture "$results_dir/host-network-limits.txt" sh -c 'df -h; sysctl fs.file-max net.core.somaxconn net.ipv4.ip_local_port_range net.netfilter.nf_conntrack_count net.netfilter.nf_conntrack_max 2>&1'
 capture "$results_dir/compose.txt" docker compose -f "$compose_file" ps
 capture "$results_dir/container-limits.txt" docker inspect --format '{{.Name}} nofile={{json .HostConfig.Ulimits}} pids={{.HostConfig.PidsLimit}} memory={{.HostConfig.Memory}}' $(docker compose -f "$compose_file" ps -q)
+printf 'capacity_endpoint=%s\nexternal_smoke_endpoint=from PULSEWS_URL in credential environment\n' "$capacity_url" >"$results_dir/endpoints.txt"
 capture "$results_dir/redis-memory-preflight.txt" docker compose -f "$compose_file" exec -T redis redis-cli INFO memory
 capture "$results_dir/redis-clients-preflight.txt" docker compose -f "$compose_file" exec -T redis redis-cli INFO clients
 docker pull "$k6_image" || { stop_reason="k6 image pull failed"; exit 1; }
@@ -126,7 +128,7 @@ if (( preflight_ok )); then
     throttles_before=$(scalar 'sum%28pulsews_rest_throttled_total%29%20or%20vector%280%29' || echo x)
     baseline_subscriptions=$(scalar 'sum%28pulsews_subscriptions%7Bchannel_type%3D%22public%22%7D%29' || echo 0)
     sample_resources "$tier_dir" "$app_id" & sampler_pid=$!
-    command=(docker run --rm --network host --user "$(id -u):$(id -g)" --env-file "$credentials_file" -v "$loadtest_dir:/loadtest:ro" -v "$tier_dir:/results" "$k6_image" run --summary-export=/results/k6-summary.json -e "PULSEWS_VUS=$tier" -e PULSEWS_CHANNELS=100 -e PULSEWS_RATE=50 -e PULSEWS_RAMP_DURATION=5m -e PULSEWS_HOLD_DURATION=5m -e PULSEWS_CONNECTION_SECONDS=630 -e "PULSEWS_CHANNEL_PREFIX=capacity-${GITHUB_SHA:-unknown}-$tier" /loadtest/capacity.js)
+    command=(docker run --rm --network host --user "$(id -u):$(id -g)" --env-file "$credentials_file" -v "$loadtest_dir:/loadtest:ro" -v "$tier_dir:/results" "$k6_image" run --summary-export=/results/k6-summary.json -e "PULSEWS_URL=$capacity_url" -e "PULSEWS_VUS=$tier" -e PULSEWS_CHANNELS=100 -e PULSEWS_RATE=50 -e PULSEWS_RAMP_DURATION=5m -e PULSEWS_HOLD_DURATION=5m -e PULSEWS_CONNECTION_SECONDS=630 -e "PULSEWS_CHANNEL_PREFIX=capacity-${GITHUB_SHA:-unknown}-$tier" /loadtest/capacity.js)
     printf '%q ' "${command[@]}" >"$tier_dir/command.txt"; printf '\n' >>"$tier_dir/command.txt"
     "${command[@]}" 2>&1 | tee "$tier_dir/k6.log"; k6_status=${PIPESTATUS[0]}
     stop_sampler
