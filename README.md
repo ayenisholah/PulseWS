@@ -136,6 +136,111 @@ bucket; exhausted requests return HTTP 429 and recover as tokens refill.
 The two-node integration test runs when `PULSEWS_TEST_REDIS_URL` is set. CI
 provisions Redis 7 and always runs this gate.
 
+## Configuration
+
+PulseWS reads `pulsews.config.json` by default. Set `PULSEWS_CONFIG` to use a
+different path. Production mounts this file read-only and never copies it into
+the image.
+
+| Field | Meaning |
+|---|---|
+| `port` | HTTP/WebSocket listen port |
+| `redisUrl` | Optional Redis URL; omission selects single-node memory mode |
+| `apps[].id` | Server-side application identifier used by REST publishing |
+| `apps[].key` | Public key used in WebSocket URLs and signatures |
+| `apps[].secret` | Private signing secret; never expose to browsers |
+| `apps[].maxConnections` | Cluster-wide concurrent connection limit |
+| `apps[].maxClientEventsPerSecond` | Token-bucket allowance per connection |
+| `apps[].maxRestPublishesPerSecond` | Application publish allowance divided across configured nodes |
+| `demo.appKey` / `demo.channel` | Optional restricted anonymous demo routes |
+
+Cluster containers also set stable `PULSEWS_NODE_ID` values and
+`PULSEWS_CLUSTER_SIZE=2`. Invalid configuration or unavailable configured
+Redis causes startup to fail rather than silently degrading.
+
+## Client and server usage
+
+Point an unmodified `pusher-js` client at PulseWS:
+
+```js
+import Pusher from "pusher-js";
+
+const pusher = new Pusher("demo-key", {
+  cluster: "mt1",
+  wsHost: "pulsews.sholaayeni.xyz",
+  wssPort: 443,
+  forceTLS: true,
+  enabledTransports: ["ws", "wss"],
+  disableStats: true,
+  channelAuthorization: { endpoint: "/pusher/auth" },
+});
+
+const channel = pusher.subscribe("private-orders");
+channel.bind("order.updated", (event) => console.log(event));
+```
+
+The official Node SDK signs REST publishes without custom request code:
+
+```js
+import Pusher from "pusher";
+
+const pusher = new Pusher({
+  appId: "demo-app",
+  key: "demo-key",
+  secret: process.env.PULSEWS_APP_SECRET,
+  host: "pulsews.sholaayeni.xyz",
+  port: 443,
+  useTLS: true,
+});
+
+await pusher.trigger("private-orders", "order.updated", { id: "order-42" });
+```
+
+Public channels require no subscription signature. Private channels sign
+`socket_id:channel`; presence channels additionally sign JSON `channel_data`
+containing `user_id` and optional `user_info`. Client events must start with
+`client-`, are accepted only from subscribed private/presence channels, and
+exclude their sender. Events are limited to 10 KiB and channel names to 200
+characters.
+
+## Metrics and operations
+
+`GET /health` returns the stable node ID. `GET /metrics` exposes connections,
+subscriptions, directional messages, same/cross-node delivery histograms,
+drops, rejections, throttling, process CPU/memory, heap, and event-loop lag.
+Prometheus scrapes both nodes every five seconds; the provisioned Grafana
+dashboard uses the `pulsews-prometheus` datasource.
+
+For upgrades, deploy a pinned GHCR tag or digest with `docker compose pull`
+and `docker compose up -d`, then run cluster and failover smoke gates. Roll
+back by restoring the previous image reference. Back up the application
+config, nginx/Certbot state, and Redis/Grafana/Prometheus volumes before an
+upgrade; verify backups by restoring them to a disposable host.
+
+Troubleshooting checklist:
+
+- Failed startup: validate the JSON config and Redis URL, then inspect both
+  PulseWS container logs.
+- WebSocket failures: verify DNS/TLS, nginx Upgrade headers, `/health`, and the
+  configured app key.
+- HTTP 401: check app ID/key/secret, clock skew, raw request body, and signing
+  host/port/TLS settings.
+- Missing cross-node events: confirm both Prometheus targets and Redis health,
+  then inspect dropped-message metrics.
+- Presence drift: inspect node heartbeat/socket keys and run the failover gate.
+- HTTP 429 or client error 4301: reduce publish/client-event rate or adjust
+  the corresponding application limit intentionally.
+
+## Security
+
+Keep application secrets in the mounted config and GitHub environment only;
+rotate them after any exposure. Disable demo mode for applications that do not
+need anonymous compatibility testing. In production, expose only SSH, HTTP,
+and HTTPS; monitoring and direct-node ports bind to localhost. Use strong
+Grafana credentials, SSH tunnels for operator access, encrypted backups,
+strict SSH host-key checking, and immutable image references. See
+[SECURITY.md](SECURITY.md) for vulnerability reporting.
+
 ## Compose Cluster
 
 The production stack and smoke gate live under [`deploy/`](deploy/README.md).
