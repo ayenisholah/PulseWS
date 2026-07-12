@@ -281,6 +281,8 @@ describe("production container and Compose cluster", () => {
     expect(release).toContain('"v*"');
     expect(release).toContain("contents: write");
     expect(release).toContain("npm run verify");
+    expect(release).toContain("package_version=$(node -p");
+    expect(release).toContain('test "$GITHUB_REF_NAME" = "v$package_version"');
     expect(release).toContain("gh release create");
     expect(JSON.parse(packageJson).private).toBe(true);
   });
