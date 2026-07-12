@@ -365,6 +365,10 @@ The demo page must stay dependency-light and easy to inspect:
 | M3 (W2D2) | Cross-node delivery + cluster presence working in Compose | Ship single-node + document the adapter design as in-progress; don't fake the demo |
 | M4 (end W2) | Load-tested, deployed, README complete with real numbers | Publish with the honest measured max even if < 10k; never publish unmeasured claims |
 
+**M4 status: Passed.** The deployed two-node cluster has a measured stable
+maximum of 7,500 concurrent connections, documented latency and resource
+peaks, public demo and operations guidance, and retained Grafana evidence.
+
 ---
 
 ## 10. MVP definition
@@ -485,10 +489,10 @@ pulsews/
 
 ### 16.3 Release evidence checklist
 
-- [ ] Grafana screenshot during load test showing connection ramp and latency.
-- [ ] Real max connections plus p50/p99 latency recorded in `docs/loadtest.md`.
-- [ ] Architecture diagram embedded in README after it matches the implemented topology.
-- [ ] Public demo link documented once the deployed node is live.
+- [x] Grafana screenshot during load test showing connection ramp and latency.
+- [x] Real max connections plus p50/p99 latency recorded in `docs/loadtest.md`.
+- [x] Architecture diagram embedded in README after it matches the implemented topology.
+- [x] Public demo link documented once the deployed node is live.
 
 ### 16.4 Glossary
 

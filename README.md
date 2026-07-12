@@ -264,9 +264,11 @@ ssh -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 user@your-vps
 Deployment, TLS migration, secret rotation, backups, rollback, recovery,
 firewall, failover, and load-test procedures are documented in the
 [deployment runbook](deploy/README.md). The [load-test report](docs/loadtest.md)
-will contain only measured results from the target VPS.
+contains only measured results from the target VPS.
 
 ## Browser Demo
+
+The deployed demo is available at <https://pulsews.sholaayeni.xyz>.
 
 The example configuration enables an anonymous guest demo for one presence
 channel. Copy it, start PulseWS, and open <http://127.0.0.1:6001>:

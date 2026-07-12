@@ -73,6 +73,8 @@ release.
   and environment details are recorded in `docs/loadtest.md`.
 - Live VPS evidence confirms both Prometheus targets are healthy and all ten
   provisioned Grafana panels render during the 500-connection acceptance run.
+- Historical Grafana evidence confirms the 7,500-connection ramp, same-node
+  and cross-node latency, zero actionable drops, and stable process resources.
 
 ### Changed
 

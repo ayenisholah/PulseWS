@@ -92,5 +92,9 @@ delivery p99 remained 12 ms, but the tier still fails because the generator
 did not maintain the required workload.
 
 The existing Grafana images above document dashboard acceptance at 500
-connections. A historical dashboard capture for the 7,500 UTC interval is
-still required before marking milestone M4 complete.
+connections. Historical evidence for the stable tier shows the
+[7,500-connection ramp and latency panels](assets/grafana-load-capacity-7500-top.png)
+and the [drop, rejection, resource, and event-loop panels](assets/grafana-load-capacity-7500-bottom.png)
+over the fixed 2026-07-12 00:59:53–01:10:51 UTC interval. The dashboard had no
+query or datasource errors; actionable drop, rejection, and throttle panels
+remained empty or zero as expected.
