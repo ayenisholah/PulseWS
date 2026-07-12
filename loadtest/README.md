@@ -40,3 +40,10 @@ at least 10,000 connections of current headroom. Each tier ramps for five
 minutes, holds for five minutes at 50 signed REST publishes/second across 100
 public channels, captures five-second resource samples, and uploads a
 machine-readable evidence bundle. It stops at the first failure without retry.
+
+The `Production Soak Test` workflow reuses the same scenario and evidence
+runner at 3,750 connections (50% of the measured stable maximum), with a
+five-minute ramp and one-hour hold. In addition to the capacity gates, it
+requires at least 55 minutes at target and rejects combined PulseWS RSS growth
+above either 10% or 128 MiB between the early and final stable windows. A
+passing soak is required before creating the `v0.1.0` tag.

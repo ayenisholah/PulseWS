@@ -210,12 +210,12 @@ describe("production container and Compose cluster", () => {
     expect(workflow).toContain("actions/upload-artifact@v4");
     expect(workflow).toContain("npm run smoke:cluster");
     expect(workflow).toContain("rm -f '/tmp/pulsews-capacity-$RUN_ID.env'");
-    expect(runner).toContain("readonly tiers=(1000 2500 5000 7500 10000)");
+    expect(runner).toContain("PULSEWS_TIERS:-1000 2500 5000 7500 10000");
     expect(runner).toContain("readonly required_cap=12000");
     expect(runner).toContain("readonly capacity_url=http://127.0.0.1:8080");
     expect(runner).toContain('-e "PULSEWS_URL=$capacity_url"');
     expect(runner).toContain("endpoints.txt");
-    expect(runner).toContain('required_headroom=10000');
+    expect(runner).toContain("required_headroom=$tier");
     expect(runner).toContain('break');
     expect(runner).toContain("wait_for_recovery");
     expect(runner).toContain("sleep 5");
@@ -233,7 +233,7 @@ describe("production container and Compose cluster", () => {
     expect(runner).toContain("pulsews-a.log");
     expect(runner).toContain("pulsews-b.log");
     expect(runner).toContain("failure-reasons.txt");
-    expect(runner).toContain("sustained_target_seconds >= 240");
+    expect(runner).toContain("sustained_target_seconds >= required_sustained_seconds");
     expect(runner).toContain("not every intended WebSocket upgrade was observed");
     expect(runner).toContain("not every intended public subscription was observed");
     expect(runner).toContain("redis-errors.txt");
@@ -254,6 +254,35 @@ describe("production container and Compose cluster", () => {
     expect(scenario).toContain("responseBodyCategory");
     expect(scenario).toContain("sentAt: Date.now()");
     expect(scenario).toContain("pusher_internal:subscription_succeeded");
+  });
+
+  test("provides a release-blocking one-hour production soak and tagged release", async () => {
+    const [soak, release, runner, packageJson] = await Promise.all([
+      read(".github/workflows/soak-production.yml"),
+      read(".github/workflows/release.yml"),
+      read(".github/scripts/run-load-capacity.sh"),
+      read("package.json"),
+    ]);
+
+    expect(soak).toContain("group: production-load-benchmark");
+    expect(soak).toContain("PULSEWS_TIERS='3750'");
+    expect(soak).toContain("PULSEWS_HOLD_DURATION='60m'");
+    expect(soak).toContain("PULSEWS_REQUIRED_SUSTAINED_SECONDS='3300'");
+    expect(soak).toContain("PULSEWS_REQUIRE_MEMORY_FLAT='1'");
+    expect(soak).toContain("if: ${{ always() }}");
+    expect(soak).toContain("npm run smoke:cluster");
+    expect(soak).toContain("actions/upload-artifact@v4");
+    expect(runner).toContain("pulsews_process_resident_memory_bytes");
+    expect(runner).toContain("pulsews_nodejs_heap_size_used_bytes");
+    expect(runner).toContain("pulsews_nodejs_eventloop_lag_p99_seconds");
+    expect(runner).toContain("memory_growth_bytes <= 134217728");
+    expect(runner).toContain("memory_late <= $memory_early * 1.10");
+    expect(release).toContain('tags:');
+    expect(release).toContain('"v*"');
+    expect(release).toContain("contents: write");
+    expect(release).toContain("npm run verify");
+    expect(release).toContain("gh release create");
+    expect(JSON.parse(packageJson).private).toBe(true);
   });
 });
 

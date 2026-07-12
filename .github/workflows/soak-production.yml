@@ -1,0 +1,88 @@
+name: Production Soak Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Deployed PulseWS image tag to soak"
+        required: true
+        default: edge
+      retention_days:
+        description: "Evidence retention (1-30 days)"
+        required: false
+        default: "30"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-load-benchmark
+  cancel-in-progress: false
+
+jobs:
+  soak:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+      VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+      PULSEWS_SMOKE_URL: ${{ secrets.PULSEWS_SMOKE_URL }}
+      PULSEWS_APP_ID: ${{ secrets.PULSEWS_APP_ID }}
+      PULSEWS_APP_KEY: ${{ secrets.PULSEWS_APP_KEY }}
+      PULSEWS_APP_SECRET: ${{ secrets.PULSEWS_APP_SECRET }}
+      PULSEWS_IMAGE: ghcr.io/ayenisholah/pulsews:${{ inputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate inputs and secrets
+        run: |
+          case "${{ inputs.retention_days }}" in ''|*[!0-9]*) exit 1 ;; esac
+          test "${{ inputs.retention_days }}" -ge 1 && test "${{ inputs.retention_days }}" -le 30
+          for value in "$VPS_HOST" "$VPS_USER" "$VPS_SSH_KEY" "$VPS_KNOWN_HOSTS" "$PULSEWS_SMOKE_URL" "$PULSEWS_APP_ID" "$PULSEWS_APP_KEY" "$PULSEWS_APP_SECRET"; do test -n "$value"; done
+      - name: Configure SSH
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: Upload soak harness and credentials
+        run: |
+          run_id="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "RUN_ID=$run_id" >> "$GITHUB_ENV"
+          tar -czf "$RUNNER_TEMP/pulsews-soak.tgz" loadtest .github/scripts/run-load-capacity.sh
+          umask 077
+          printf 'PULSEWS_URL=%s\nPULSEWS_APP_ID=%s\nPULSEWS_APP_KEY=%s\nPULSEWS_APP_SECRET=%s\n' "$PULSEWS_SMOKE_URL" "$PULSEWS_APP_ID" "$PULSEWS_APP_KEY" "$PULSEWS_APP_SECRET" > "$RUNNER_TEMP/pulsews-soak.env"
+          scp "$RUNNER_TEMP/pulsews-soak.tgz" "$RUNNER_TEMP/pulsews-soak.env" "$VPS_USER@$VPS_HOST:/tmp/"
+          ssh "$VPS_USER@$VPS_HOST" "mkdir -p /opt/pulsews/load-results/$run_id && tar -xzf /tmp/pulsews-soak.tgz -C /opt/pulsews && install -m 600 /tmp/pulsews-soak.env /tmp/pulsews-soak-$run_id.env"
+      - name: Run 3,750-connection one-hour soak
+        run: |
+          ssh "$VPS_USER@$VPS_HOST" "GITHUB_SHA='$GITHUB_SHA' PULSEWS_TIERS='3750' PULSEWS_RAMP_DURATION='5m' PULSEWS_HOLD_DURATION='60m' PULSEWS_CONNECTION_SECONDS='3960' PULSEWS_REQUIRED_SUSTAINED_SECONDS='3300' PULSEWS_REQUIRE_MEMORY_FLAT='1' bash /opt/pulsews/.github/scripts/run-load-capacity.sh '/opt/pulsews/load-results/$RUN_ID' '/tmp/pulsews-soak-$RUN_ID.env' '$PULSEWS_IMAGE'"
+      - name: Download and validate evidence
+        if: ${{ always() }}
+        run: |
+          mkdir -p soak-results
+          scp -r "$VPS_USER@$VPS_HOST:/opt/pulsews/load-results/$RUN_ID/." soak-results/ || true
+          test -s soak-results/result.json
+      - uses: actions/setup-node@v4
+        if: ${{ always() }}
+        with:
+          node-version: 22
+          cache: npm
+      - name: Unconditional cleanup and production smoke
+        if: ${{ always() }}
+        run: |
+          ssh "$VPS_USER@$VPS_HOST" "rm -f '/tmp/pulsews-soak-$RUN_ID.env' /tmp/pulsews-soak.env /tmp/pulsews-soak.tgz"
+          npm ci
+          npm run smoke:cluster
+      - name: Upload soak evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-soak-${{ github.run_id }}-${{ github.run_attempt }}
+          path: soak-results/
+          if-no-files-found: error
+          retention-days: ${{ fromJSON(inputs.retention_days || '30') }}
+      - name: Remove runner credential file
+        if: ${{ always() }}
+        run: rm -f "$RUNNER_TEMP/pulsews-soak.env"

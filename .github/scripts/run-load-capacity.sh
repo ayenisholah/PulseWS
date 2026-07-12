@@ -9,7 +9,12 @@ readonly expected_image="${3:?expected image is required}"
 readonly k6_image=grafana/k6:2.0.0
 readonly required_cap=12000
 readonly capacity_url=http://127.0.0.1:8080
-readonly tiers=(1000 2500 5000 7500 10000)
+readonly ramp_duration="${PULSEWS_RAMP_DURATION:-5m}"
+readonly hold_duration="${PULSEWS_HOLD_DURATION:-5m}"
+readonly connection_seconds="${PULSEWS_CONNECTION_SECONDS:-630}"
+readonly required_sustained_seconds="${PULSEWS_REQUIRED_SUSTAINED_SECONDS:-240}"
+readonly require_memory_flat="${PULSEWS_REQUIRE_MEMORY_FLAT:-0}"
+read -r -a tiers <<< "${PULSEWS_TIERS:-1000 2500 5000 7500 10000}"
 
 mkdir -p "$results_dir" && chmod 700 "$results_dir"
 exec > >(tee -a "$results_dir/workflow.log") 2>&1
@@ -58,7 +63,7 @@ sample_resources() {
   local dir=$1 app_id=$2 previous_total='' previous_idle='' overload=0 peak_cpu=0 peak_mem=0
   printf 'timestamp,host_cpu_percent,host_used_bytes\n' >"$dir/host-samples.csv"
   printf 'timestamp,container,cpu_percent,memory_usage\n' >"$dir/container-samples.csv"
-  printf 'timestamp,connections,subscriptions,same_node_deliveries,cross_node_deliveries,actionable_drops,rest_throttles,redis_reservations,epoch_seconds\n' >"$dir/prometheus-samples.csv"
+  printf 'timestamp,connections,subscriptions,same_node_deliveries,cross_node_deliveries,actionable_drops,rest_throttles,redis_reservations,pulsews_rss_bytes,pulsews_heap_bytes,eventloop_lag_p99_seconds,epoch_seconds\n' >"$dir/prometheus-samples.csv"
   while :; do
     read -r _ user nice system idle iowait irq softirq steal _ < /proc/stat
     local total=$((user+nice+system+idle+iowait+irq+softirq+steal)) idle_all=$((idle+iowait)) cpu=0
@@ -67,7 +72,7 @@ sample_resources() {
     local used; used=$(awk '/MemTotal/{t=$2}/MemAvailable/{a=$2}END{print (t-a)*1024}' /proc/meminfo)
     printf '%s,%s,%s\n' "$(date -u +%FT%TZ)" "$cpu" "$used" >>"$dir/host-samples.csv"
     docker stats --no-stream --format '{{.Name}},{{.CPUPerc}},{{.MemUsage}}' >>"$dir/container-samples.csv" 2>/dev/null || true
-    local connections subscriptions same cross drops throttles reservations
+    local connections subscriptions same cross drops throttles reservations rss heap eventloop
     connections=$(scalar 'sum%28pulsews_connections%29' || echo invalid)
     subscriptions=$(scalar 'sum%28pulsews_subscriptions%7Bchannel_type%3D%22public%22%7D%29' || echo invalid)
     same=$(scalar 'sum%28pulsews_delivery_latency_seconds_count%7Bscope%3D%22same_node%22%7D%29%20or%20vector%280%29' || echo invalid)
@@ -75,8 +80,11 @@ sample_resources() {
     drops=$(scalar 'sum%28pulsews_dropped_messages_total%7Breason%21%3D%22no_local_subscribers%22%7D%29%20or%20vector%280%29' || echo invalid)
     throttles=$(scalar 'sum%28pulsews_rest_throttled_total%29%20or%20vector%280%29' || echo invalid)
     reservations=$(docker compose -f "$compose_file" exec -T redis redis-cli --raw GET "pulsews:app:$app_id:connections" 2>/dev/null || echo invalid); reservations=${reservations:-0}
+    rss=$(scalar 'sum%28pulsews_process_resident_memory_bytes%29' || echo invalid)
+    heap=$(scalar 'sum%28pulsews_nodejs_heap_size_used_bytes%29' || echo invalid)
+    eventloop=$(scalar 'max%28pulsews_nodejs_eventloop_lag_p99_seconds%29' || echo invalid)
     sample_epoch=$(date +%s)
-    printf '%s,%s,%s,%s,%s,%s,%s,%s,%s\n' "$(date -u +%FT%TZ)" "$connections" "$subscriptions" "$same" "$cross" "$drops" "$throttles" "$reservations" "$sample_epoch" >>"$dir/prometheus-samples.csv"
+    printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' "$(date -u +%FT%TZ)" "$connections" "$subscriptions" "$same" "$cross" "$drops" "$throttles" "$reservations" "$rss" "$heap" "$eventloop" "$sample_epoch" >>"$dir/prometheus-samples.csv"
     awk "BEGIN {exit !($cpu>$peak_cpu)}" && peak_cpu=$cpu
     (( used > peak_mem )) && peak_mem=$used
     if awk "BEGIN {exit !($cpu>90)}"; then overload=$((overload+1)); else overload=0; fi
@@ -103,11 +111,12 @@ capture "$results_dir/image-digests.txt" docker image inspect --format '{{json .
 max_connections=$(docker compose -f "$compose_file" exec -T pulsews-a node -e 'const fs=require("node:fs"),c=JSON.parse(fs.readFileSync(process.env.PULSEWS_CONFIG));const a=c.apps.find(x=>x.id===process.argv[1]);process.stdout.write(String(a?.maxConnections||0))' "$app_id" || echo 0)
 baseline_reserved=$(docker compose -f "$compose_file" exec -T redis redis-cli --raw GET "pulsews:app:$app_id:connections" || echo 0); baseline_reserved=${baseline_reserved:-0}
 baseline_connections=$(scalar 'sum%28pulsews_connections%29' || echo 0)
-printf 'app_id=%s\nmax_connections=%s\nreserved_connections=%s\nprometheus_connections=%s\nrequired_cap=%s\nrequired_headroom=10000\n' "$app_id" "$max_connections" "$baseline_reserved" "$baseline_connections" "$required_cap" >"$results_dir/connection-headroom.txt"
+required_headroom=0; for tier in "${tiers[@]}"; do (( tier > required_headroom )) && required_headroom=$tier; done
+printf 'app_id=%s\nmax_connections=%s\nreserved_connections=%s\nprometheus_connections=%s\nrequired_cap=%s\nrequired_headroom=%s\n' "$app_id" "$max_connections" "$baseline_reserved" "$baseline_connections" "$required_cap" "$required_headroom" >"$results_dir/connection-headroom.txt"
 
 preflight_ok=1
 [[ -n "$app_id" && "$max_connections" == "$required_cap" ]] || { stop_reason="deployed app cap is not exactly 12000"; preflight_ok=0; }
-[[ "$baseline_reserved" =~ ^[0-9]+$ ]] && (( required_cap - baseline_reserved >= 10000 )) || { stop_reason="insufficient headroom for 10000 clients"; preflight_ok=0; }
+[[ "$baseline_reserved" =~ ^[0-9]+$ ]] && (( required_cap - baseline_reserved >= required_headroom )) || { stop_reason="insufficient headroom for $required_headroom clients"; preflight_ok=0; }
 compose_healthy || { stop_reason="Compose health preflight failed"; preflight_ok=0; }
 [[ $(docker compose -f "$compose_file" exec -T redis redis-cli ping) == PONG ]] || { stop_reason="Redis preflight failed"; preflight_ok=0; }
 [[ $(ulimit -n) -ge 65535 ]] || { stop_reason="host file-descriptor limit below 65535"; preflight_ok=0; }
@@ -128,7 +137,7 @@ if (( preflight_ok )); then
     throttles_before=$(scalar 'sum%28pulsews_rest_throttled_total%29%20or%20vector%280%29' || echo x)
     baseline_subscriptions=$(scalar 'sum%28pulsews_subscriptions%7Bchannel_type%3D%22public%22%7D%29' || echo 0)
     sample_resources "$tier_dir" "$app_id" & sampler_pid=$!
-    command=(docker run --rm --network host --user "$(id -u):$(id -g)" --env-file "$credentials_file" -v "$loadtest_dir:/loadtest:ro" -v "$tier_dir:/results" "$k6_image" run --summary-export=/results/k6-summary.json -e "PULSEWS_URL=$capacity_url" -e "PULSEWS_VUS=$tier" -e PULSEWS_CHANNELS=100 -e PULSEWS_RATE=50 -e PULSEWS_RAMP_DURATION=5m -e PULSEWS_HOLD_DURATION=5m -e PULSEWS_CONNECTION_SECONDS=630 -e "PULSEWS_CHANNEL_PREFIX=capacity-${GITHUB_SHA:-unknown}-$tier" /loadtest/capacity.js)
+    command=(docker run --rm --network host --user "$(id -u):$(id -g)" --env-file "$credentials_file" -v "$loadtest_dir:/loadtest:ro" -v "$tier_dir:/results" "$k6_image" run --summary-export=/results/k6-summary.json -e "PULSEWS_URL=$capacity_url" -e "PULSEWS_VUS=$tier" -e PULSEWS_CHANNELS=100 -e PULSEWS_RATE=50 -e "PULSEWS_RAMP_DURATION=$ramp_duration" -e "PULSEWS_HOLD_DURATION=$hold_duration" -e "PULSEWS_CONNECTION_SECONDS=$connection_seconds" -e "PULSEWS_CHANNEL_PREFIX=capacity-${GITHUB_SHA:-unknown}-$tier" /loadtest/capacity.js)
     printf '%q ' "${command[@]}" >"$tier_dir/command.txt"; printf '\n' >>"$tier_dir/command.txt"
     "${command[@]}" 2>&1 | tee "$tier_dir/k6.log"; k6_status=${PIPESTATUS[0]}
     stop_sampler
@@ -148,8 +157,11 @@ if (( preflight_ok )); then
     peak_subscriptions=$(awk -F, 'NR>1 && $3 ~ /^[0-9.]+$/ && $3>m {m=$3} END{print m+0}' "$tier_dir/prometheus-samples.csv")
     target_connections=$tier
     target_subscriptions=$tier
-    sustained_target_seconds=$(awk -F, -v c="$target_connections" -v s="$target_subscriptions" 'NR>1 {if ($2+0>=c && $3+0>=s) {if(!start)start=$9; duration=$9-start; if(duration>max)max=duration} else start=0} END{print max+0}' "$tier_dir/prometheus-samples.csv")
-    printf 'peak_connections=%s\npeak_subscriptions=%s\nsustained_target_seconds=%s\n' "$peak_connections" "$peak_subscriptions" "$sustained_target_seconds" >>"$tier_dir/peaks.txt"
+    sustained_target_seconds=$(awk -F, -v c="$target_connections" -v s="$target_subscriptions" 'NR>1 {if ($2+0>=c && $3+0>=s) {if(!start)start=$12; duration=$12-start; if(duration>max)max=duration} else start=0} END{print max+0}' "$tier_dir/prometheus-samples.csv")
+    memory_values=$(awk -F, -v c="$target_connections" -v s="$target_subscriptions" 'NR>1 && $2+0>=c && $3+0>=s && $9 ~ /^[0-9.]+$/ {if(!start)start=$12; last=$12; value[$12]=$9} END {for(t in value){if(t>=start+600 && t<start+1200){a+=value[t];an++} if(t>last-600){b+=value[t];bn++}} printf "%.0f %.0f", (an?a/an:0), (bn?b/bn:0)}' "$tier_dir/prometheus-samples.csv")
+    read -r memory_early memory_late <<< "$memory_values"
+    memory_growth_bytes=$((memory_late-memory_early))
+    printf 'peak_connections=%s\npeak_subscriptions=%s\nsustained_target_seconds=%s\nmemory_early_window_bytes=%s\nmemory_late_window_bytes=%s\nmemory_growth_bytes=%s\n' "$peak_connections" "$peak_subscriptions" "$sustained_target_seconds" "$memory_early" "$memory_late" "$memory_growth_bytes" >>"$tier_dir/peaks.txt"
     reasons=()
     (( k6_status == 0 )) || reasons+=("k6 threshold or scenario failure")
     cmp -s "$tier_dir/container-state-before.txt" "$tier_dir/container-state-after.txt" || reasons+=("container restart, OOM, health, or image changed")
@@ -159,7 +171,12 @@ if (( preflight_ok )); then
     [[ "$throttles_before" == "$throttles_after" ]] || reasons+=("REST throttle counter increased")
     awk "BEGIN{exit !($peak_connections >= $target_connections)}" || reasons+=("not every intended WebSocket upgrade was observed")
     awk "BEGIN{exit !($peak_subscriptions >= $target_subscriptions)}" || reasons+=("not every intended public subscription was observed")
-    (( sustained_target_seconds >= 240 )) || reasons+=("target connections and subscriptions were not sustained for four minutes")
+    (( sustained_target_seconds >= required_sustained_seconds )) || reasons+=("target connections and subscriptions did not meet the sustained-duration requirement")
+    if [[ "$require_memory_flat" == 1 ]]; then
+      (( memory_early > 0 && memory_late > 0 )) || reasons+=("PulseWS memory windows could not be measured")
+      (( memory_growth_bytes <= 134217728 )) || reasons+=("PulseWS RSS grew by more than 128 MiB")
+      awk "BEGIN{exit !($memory_late <= $memory_early * 1.10)}" || reasons+=("PulseWS RSS grew by more than 10 percent")
+    fi
     [[ "$same_before" != x && "$cross_before" != x ]] && awk "BEGIN{exit !($same_after>$same_before && $cross_after>$cross_before)}" || reasons+=("same-node and cross-node delivery series did not both increase")
     compose_healthy || reasons+=("Compose health postflight failed")
     if (( ${#reasons[@]} )); then
