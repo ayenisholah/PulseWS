@@ -121,6 +121,8 @@ production nginx path.
 | Peak nginx / Redis | nginx: 13.87% CPU / 140.30 MiB; Redis: 5.32% CPU / 18.24 MiB (4.78 MiB Redis internal peak) |
 | Health gates | 0 connection/subscription/publish failures, actionable drops, or throttles; no restart, OOM, unhealthy container, Redis error, or sustained CPU overload |
 
-The soak used the same-VPS k6 contention model as the capacity benchmark.
-Historical Grafana captures for the stable soak interval remain the final
-evidence required before tagging `v0.1.0`.
+The soak used the same-VPS k6 contention model as the capacity benchmark. The
+[one-hour connection, throughput, and latency view](assets/grafana-soak-3750-top.png)
+and [drop, memory, CPU, and event-loop view](assets/grafana-soak-3750-bottom.png)
+cover the stable interval without datasource or query errors. The empty drop,
+rejection, and throttle panels are expected for this passing run.

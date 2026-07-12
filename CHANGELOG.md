@@ -9,6 +9,8 @@ release.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-07-12
+
 ### Added
 
 - TypeScript project scaffold with npm verify wiring, strict `tsconfig.json`,
@@ -67,6 +69,9 @@ release.
   connections with 180,000 successful publishes, 6 ms delivery p99, zero
   failures or dropped iterations, and a 21.19 MiB decrease between PulseWS RSS
   comparison windows.
+- Historical Grafana evidence confirms the soak maintained a flat connection
+  plateau, low delivery latency, declining resident memory, steady CPU, and
+  zero actionable failure series for the full stable interval.
 - The automatic production benchmark established **7,500 concurrent
   connections** as the stable maximum on the shared 4-vCPU/7.1-GiB VPS, with
   9 ms publish-to-deliver p99 and 4 ms handshake p99. The 10,000 tier reached

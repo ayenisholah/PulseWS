@@ -9,7 +9,7 @@ observability, and measured load-test results.
 
 ## Status
 
-Pre-alpha. The TypeScript scaffold, validated config loading,
+Version 0.1.0. The TypeScript scaffold, validated config loading,
 uWebSockets.js handshake, public channels, connection liveness, and the signed
 REST publishing and the single-node MVP are in place, including public,
 private, and presence channels, rate-limited client events, an opt-in live
