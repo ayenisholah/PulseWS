@@ -9,6 +9,14 @@ release.
 
 ## [Unreleased]
 
+### Changed
+
+- Hardened production deployment to require an explicit immutable image tag,
+  persist it on the VPS, and verify both PulseWS nodes are healthy on the same
+  requested image digest.
+- Reorganized the public documentation around installation, SDK usage,
+  production deployment, operations, and proposed future releases.
+
 ## [0.1.0] - 2026-07-12
 
 ### Added

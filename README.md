@@ -7,6 +7,32 @@ that already use `pusher-js` and the official Pusher server SDKs. The goal is
 protocol compatibility first, then Redis-backed horizontal fan-out,
 observability, and measured load-test results.
 
+## Quick start
+
+Requirements: Node.js 22+, npm, and optionally Redis 7 for multi-node fan-out.
+
+```sh
+git clone https://github.com/ayenisholah/PulseWS.git
+cd PulseWS
+npm install
+cp pulsews.config.example.json pulsews.config.json
+npm run dev
+```
+
+On PowerShell, replace the copy command with:
+
+```powershell
+Copy-Item pulsews.config.example.json pulsews.config.json
+```
+
+Before using the server outside local development, replace the example app
+secret in `pulsews.config.json` with a long random value. Remove `redisUrl` for
+a single-node installation without Redis. The server listens on port `6001` by
+default; open <http://127.0.0.1:6001/health> to verify it.
+
+See the [installation and usage guide](docs/INSTALLATION.md) for private and
+presence authentication, SDK examples, Redis setup, and common errors.
+
 ## Status
 
 Version 0.1.0. The TypeScript scaffold, validated config loading,
@@ -215,6 +241,18 @@ drops, rejections, throttling, process CPU/memory, heap, and event-loop lag.
 Prometheus scrapes both nodes every five seconds; the provisioned Grafana
 dashboard uses the `pulsews-prometheus` datasource.
 
+Prometheus and Grafana are provisioned with the Compose stack and bind to
+localhost in production. Open a secure operator tunnel:
+
+```sh
+ssh -N -L 3000:127.0.0.1:3000 -L 9090:127.0.0.1:9090 user@your-vps
+```
+
+Then use <http://localhost:3000> for the **PulseWS Overview** dashboard and
+<http://localhost:9090/targets> to confirm both nodes are being scraped. See
+the [monitoring guide](docs/MONITORING.md) for panel meanings, validation,
+retention, and troubleshooting.
+
 For upgrades, deploy a pinned GHCR tag or digest with `docker compose pull`
 and `docker compose up -d`, then run cluster and failover smoke gates. Roll
 back by restoring the previous image reference. Back up the application
@@ -234,6 +272,41 @@ Troubleshooting checklist:
 - Presence drift: inspect node heartbeat/socket keys and run the failover gate.
 - HTTP 429 or client error 4301: reduce publish/client-event rate or adjust
   the corresponding application limit intentionally.
+
+## Production deployment
+
+The supported production topology uses host nginx/Certbot for public TLS and
+the Compose stack for two PulseWS nodes, Redis, internal nginx, Prometheus,
+and Grafana. On an Ubuntu VPS:
+
+```sh
+sudo mkdir -p /opt/pulsews/deploy
+sudo cp deploy/pulsews.config.example.json /opt/pulsews/deploy/pulsews.config.json
+sudo nano /opt/pulsews/deploy/pulsews.config.json
+```
+
+Set a unique app secret and deploy an immutable release image through
+**Actions -> Deploy Production** using an explicit tag such as `v0.1.0`.
+The workflow uploads the Compose bundle, persists the selected image in
+`/opt/pulsews/deploy/.env`, waits for both nodes to become healthy, verifies
+that they use the same image digest, and optionally runs smoke/failover gates.
+It refuses mutable `edge` and `latest` tags.
+
+Required GitHub `production` environment secrets are `VPS_HOST`, `VPS_USER`,
+`VPS_SSH_KEY`, and `VPS_KNOWN_HOSTS`. Smoke testing also requires
+`PULSEWS_SMOKE_URL`, `PULSEWS_APP_ID`, `PULSEWS_APP_KEY`, and
+`PULSEWS_APP_SECRET`.
+
+Verify a deployment on the host:
+
+```sh
+docker compose -f /opt/pulsews/deploy/docker-compose.yml ps
+curl -fsS https://your-pulsews-host.example/health
+```
+
+Follow the complete [production deployment runbook](deploy/README.md) for
+DNS, TLS, nginx, firewall, file-descriptor limits, backups, upgrades,
+rollback, smoke tests, and SSH tunnels.
 
 ## Security
 
@@ -288,17 +361,10 @@ single-node local demo without Redis.
 
 ## Roadmap
 
-The implementation plan is intentionally ordered around compatibility gates:
-
-1. Config loader and app credential validation.
-2. uWebSockets.js server skeleton and Pusher connection handshake.
-3. Public channels, ping/pong, and local event delivery.
-4. Signed REST publish endpoint verified against the official Pusher SDK.
-5. Private channels, presence channels, and client events.
-6. Redis adapter, cluster presence, metrics, Docker Compose, and load tests.
-
-See [docs/pulsews-engineering-doc.md](docs/pulsews-engineering-doc.md) for
-protocol and architecture details.
+The original compatibility, clustering, observability, and measured-capacity
+milestones are complete for `v0.1.0`. See the
+[future releases roadmap](docs/FUTURE_RELEASES.md) for proposed post-`v0.1.0`
+work. Roadmap items are not commitments until assigned to a release.
 
 ## Scope
 
@@ -314,6 +380,10 @@ scaling story stays focused.
 | `src/` | TypeScript source |
 | `public/` | Opt-in browser demo assets |
 | `test/` | Vitest unit and integration tests |
+| `docs/README.md` | Documentation index |
+| `docs/INSTALLATION.md` | Installation, configuration, and SDK usage |
+| `docs/FUTURE_RELEASES.md` | Proposed future release work |
+| `docs/MONITORING.md` | Prometheus and Grafana operations |
 | `docs/pulsews-engineering-doc.md` | Engineering spec |
 | `docs/DECISIONS.md` | Architecture decision records |
 | `scripts/verify.*` | Local build, lint, and test entrypoints |

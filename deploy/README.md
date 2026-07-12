@@ -66,10 +66,33 @@ To enable the post-deploy production smoke gate, also add these secrets to the
 The first image push creates a GHCR package. Set that package visibility to
 public if you want the VPS to pull it without extra registry credentials.
 
+### Deploy a release
+
+Open **Actions -> Deploy Production -> Run workflow**, select `main`, and
+enter an immutable tag such as `v0.1.0`. Enable the smoke and failover inputs
+when release-gating production. Do not use **Re-run all jobs** to change an
+image tag because a rerun retains the original dispatch inputs.
+
+The workflow rejects `edge` and `latest`, writes the requested image to
+`/opt/pulsews/deploy/.env`, and verifies both PulseWS containers are healthy
+on the requested image and identical digest. Confirm the result on the VPS:
+
+```sh
+docker compose -f /opt/pulsews/deploy/docker-compose.yml ps
+docker inspect pulsews-pulsews-a-1 pulsews-pulsews-b-1 \
+  --format '{{.Name}} {{.Config.Image}} {{.Image}} {{.State.Health.Status}}'
+curl -fsS https://your-pulsews-host.example/health
+```
+
+The `.env` file is environment state and must not be committed. Future manual
+Compose commands automatically reuse its pinned `PULSEWS_IMAGE` value.
+
 Deploy from the GitHub Actions UI:
 
-1. Run `Container Image` on `main` to publish `ghcr.io/ayenisholah/pulsews:edge`.
-2. Run `Deploy Production` with `image_tag=edge` and `run_smoke=true`.
+1. Push a version tag such as `v0.1.0`; `Container Image` publishes the
+   matching immutable GHCR tag.
+2. Run `Deploy Production` with that version in `image_tag` and enable the
+   smoke/failover gates required for the release.
 3. Treat a failed smoke job as a failed deployment; inspect the service logs
    before retrying.
 
@@ -106,6 +129,10 @@ Overview** dashboard automatically in the **PulseWS** folder with panels for:
 - dropped messages by reason;
 - client-event rejections; and
 - REST publish throttling.
+
+Prometheus and Grafana bind to localhost by default. Access them through an
+SSH tunnel and follow the [monitoring guide](../docs/MONITORING.md) for target
+checks, dashboard interpretation, retention, and troubleshooting.
 
 Open Grafana on port `3000` and sign in with `GF_SECURITY_ADMIN_USER` and
 `GF_SECURITY_ADMIN_PASSWORD`. Set a strong password in the VPS environment
