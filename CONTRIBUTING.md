@@ -1,8 +1,9 @@
 # Contributing to PulseWS
 
-Thanks for your interest in PulseWS. The project is in active early
-development, so the surface area changes quickly — opening an issue before a
-large pull request will save you time.
+Thanks for your interest in PulseWS. Version 0.1.0 is released and its core
+compatibility surface is intentionally focused. Open an issue before a large
+pull request so the proposed work can be checked against the
+[future releases roadmap](docs/FUTURE_RELEASES.md).
 
 ## Development setup
 

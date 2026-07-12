@@ -1,11 +1,32 @@
 # PulseWS
 
+[![CI](https://github.com/ayenisholah/PulseWS/actions/workflows/ci.yml/badge.svg)](https://github.com/ayenisholah/PulseWS/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/ayenisholah/PulseWS)](https://github.com/ayenisholah/PulseWS/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Node.js 22+](https://img.shields.io/badge/node-%3E%3D22-339933?logo=node.js&logoColor=white)](package.json)
+[![GHCR](https://img.shields.io/badge/container-GHCR-2496ED?logo=docker&logoColor=white)](https://github.com/ayenisholah/PulseWS/pkgs/container/pulsews)
+
 Self-hosted, Pusher-compatible WebSocket pub/sub server in TypeScript.
 
-PulseWS is being built as a drop-in real-time messaging server for applications
-that already use `pusher-js` and the official Pusher server SDKs. The goal is
-protocol compatibility first, then Redis-backed horizontal fan-out,
-observability, and measured load-test results.
+PulseWS is a protocol-compatible real-time messaging server for applications
+that already use `pusher-js` and official Pusher server SDKs. It combines
+compatibility, Redis-backed horizontal fan-out, production observability, and
+published measured load-test results.
+
+**[Live demo](https://pulsews.sholaayeni.xyz)** ·
+**[Documentation](docs/README.md)** ·
+**[Deployment](deploy/README.md)** ·
+**[Monitoring](docs/MONITORING.md)** ·
+**[Benchmarks](docs/loadtest.md)** ·
+**[Latest release](https://github.com/ayenisholah/PulseWS/releases/latest)**
+
+## Highlights
+
+- Works with unmodified `pusher-js` and the official Pusher Node SDK.
+- Runs as a Redis-backed multi-node cluster with shared presence and failover.
+- Sustained **7,500 concurrent connections** on the documented shared 4-vCPU
+  VPS while publishing 50 signed events per second.
+- Measured **9 ms publish-to-deliver p99** at the stable maximum.
 
 ## Quick start
 
@@ -74,6 +95,11 @@ The measured result includes contention from k6 running on the same VPS. See
 the [load-test report](docs/loadtest.md) for hardware, thresholds, peaks, and
 the failed 10,000-tier stop reason.
 
+![PulseWS Grafana dashboard during the measured 7,500-connection capacity run](docs/assets/grafana-load-capacity-7500-top.png)
+
+The dashboard image is evidence from the measured capacity run, not a claim
+about other hardware. See the [complete benchmark report](docs/loadtest.md).
+
 ## Why
 
 Hosted real-time services price by concurrent connections and message volume.
@@ -90,6 +116,21 @@ PulseWS targets that migration path:
 - Redis pub/sub for multi-node delivery.
 - Per-app credentials, limits, rate limiting, and Prometheus metrics.
 - k6 scenarios that publish measured connection and latency results.
+
+## Problem, audience, and value
+
+PulseWS helps teams move an existing Pusher-based real-time application onto
+self-hosted infrastructure without replacing familiar client and server SDK
+integrations. It is aimed at backend, platform, DevOps, and full-stack
+engineers operating WebSocket messaging, private or presence channels, or
+workloads whose hosted-service costs are growing.
+
+The project demonstrates a controlled migration path: protocol-compatible
+clients and publishing, Redis-backed horizontal scaling, production
+observability, and capacity backed by documented measurements. It focuses on
+the core Pusher Channels surface rather than claiming compatibility with every
+Pusher feature. See the [project story and interview guide](docs/PROJECT_STORY.md)
+for the problem, design, evidence, limitations, and ready-to-use explanations.
 
 ## Architecture
 
@@ -381,6 +422,7 @@ scaling story stays focused.
 | `public/` | Opt-in browser demo assets |
 | `test/` | Vitest unit and integration tests |
 | `docs/README.md` | Documentation index |
+| `docs/PROJECT_STORY.md` | Product story and interview guide |
 | `docs/INSTALLATION.md` | Installation, configuration, and SDK usage |
 | `docs/FUTURE_RELEASES.md` | Proposed future release work |
 | `docs/MONITORING.md` | Prometheus and Grafana operations |
@@ -391,3 +433,7 @@ scaling story stays focused.
 ## License
 
 [MIT](LICENSE) (c) 2026 Shola Ayeni
+
+## Author
+
+Built and maintained by [Shola Ayeni](https://github.com/ayenisholah).

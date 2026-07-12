@@ -4,22 +4,33 @@
   "private": true,
   "description": "Self-hosted, Pusher-compatible WebSocket pub/sub server in TypeScript",
   "license": "MIT",
-  "author": "Shola Ayeni <ayenisholah@yahoo.com>",
+  "author": {
+    "name": "Shola Ayeni",
+    "email": "ayenisholah@yahoo.com",
+    "url": "https://github.com/ayenisholah"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ayenisholah/PulseWS.git"
   },
-  "homepage": "https://github.com/ayenisholah/PulseWS#readme",
+  "homepage": "https://pulsews.sholaayeni.xyz",
   "bugs": {
     "url": "https://github.com/ayenisholah/PulseWS/issues"
   },
   "keywords": [
+    "websocket-server",
     "websocket",
     "pubsub",
+    "pub-sub",
     "pusher",
+    "pusher-compatible",
     "realtime",
+    "redis",
+    "self-hosted",
+    "typescript",
     "uwebsockets"
   ],
+  "packageManager": "npm@11.13.0",
   "type": "module",
   "engines": {
     "node": ">=22"

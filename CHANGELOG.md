@@ -16,6 +16,11 @@ release.
   requested image digest.
 - Reorganized the public documentation around installation, SDK usage,
   production deployment, operations, and proposed future releases.
+- Polished public project metadata, README badges and navigation, measured
+  benchmark presentation, contributor guidance, and maintainer attribution.
+- Added a product story and interview guide covering the migration problem,
+  architecture, measured evidence, project boundaries, and technical talking
+  points.
 
 ## [0.1.0] - 2026-07-12
 

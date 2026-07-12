@@ -15,6 +15,10 @@ five-minute quick start, compatibility matrix, and production summary.
   thresholds, contention disclosure, and Grafana evidence.
 - [Future releases](FUTURE_RELEASES.md): proposed post-`v0.1.0` work and the
   rules for promoting ideas into a release.
+- [Repository presentation](REPOSITORY_PRESENTATION.md): canonical GitHub
+  description, website, topics, and release presentation checklist.
+- [Project story and interview guide](PROJECT_STORY.md): problem, audience,
+  architecture, measured outcomes, tradeoffs, and interview-ready explanations.
 
 ## Engineering record
 

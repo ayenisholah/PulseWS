@@ -5,6 +5,10 @@ import packageJsonData from "../package.json" with { type: "json" };
 type PackageJson = {
   name: string;
   private: boolean;
+  homepage: string;
+  packageManager: string;
+  author: { name: string; email: string; url: string };
+  keywords: string[];
   type: string;
   scripts: Record<string, string>;
   dependencies: Record<string, string>;
@@ -45,5 +49,27 @@ describe("TypeScript project scaffold", () => {
       "typescript",
       "vitest",
     ]);
+  });
+
+  test("publishes complete project metadata without enabling npm publication", () => {
+    expect(packageJson).toMatchObject({
+      private: true,
+      homepage: "https://pulsews.sholaayeni.xyz",
+      packageManager: "npm@11.13.0",
+      author: {
+        name: "Shola Ayeni",
+        email: "ayenisholah@yahoo.com",
+        url: "https://github.com/ayenisholah",
+      },
+    });
+    expect(packageJson.keywords).toEqual(
+      expect.arrayContaining([
+        "pusher-compatible",
+        "redis",
+        "self-hosted",
+        "typescript",
+        "websocket-server",
+      ]),
+    );
   });
 });

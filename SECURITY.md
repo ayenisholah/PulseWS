@@ -2,12 +2,14 @@
 
 ## Supported versions
 
-PulseWS is pre-1.0; only the latest commit on `main` receives security fixes.
+PulseWS is pre-1.0. The latest `0.1.x` release and current `main` branch receive
+security fixes.
 
 | Version | Supported |
 |---|---|
+| Latest `0.1.x` | Yes |
 | `main` | Yes |
-| Anything else | No |
+| Older versions | No |
 
 ## Reporting a vulnerability
 
