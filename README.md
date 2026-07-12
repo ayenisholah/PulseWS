@@ -42,6 +42,7 @@ Implemented:
 | Graceful shutdown and SDK failover | Done; production workflow passed |
 | k6 harness | Implemented; fixed acceptance and tiered VPS benchmark complete |
 | Measured load-test results | 7,500 stable concurrent connections; 9 ms delivery p99 |
+| One-hour production soak | Passed at 3,750 connections; RSS decreased 21.19 MiB |
 
 The measured result includes contention from k6 running on the same VPS. See
 the [load-test report](docs/loadtest.md) for hardware, thresholds, peaks, and

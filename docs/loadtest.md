@@ -98,3 +98,29 @@ and the [drop, rejection, resource, and event-loop panels](assets/grafana-load-c
 over the fixed 2026-07-12 00:59:53–01:10:51 UTC interval. The dashboard had no
 query or datasource errors; actionable drop, rejection, and throttle panels
 remained empty or zero as expected.
+
+## One-hour production soak
+
+The release-gating soak passed at 3,750 connections, exactly 50% of the
+measured stable maximum. It ramped for five minutes, held for one hour, and
+published 180,000 signed events at 50 events/second through the VPS-local
+production nginx path.
+
+| Field | Measured soak value |
+|---|---|
+| Result | Passed; target sustained for 3,617 seconds |
+| Stable UTC interval | 2026-07-12 08:50:14–09:50:31 |
+| Commit | `0c6221d59203151a17864d7be00c5392e7f8c9e4` |
+| PulseWS image | `ghcr.io/ayenisholah/pulsews@sha256:2e3f7e621f49e46d0f3e505de1b7898cf04aafa53dc915de610db4ea1f729580` |
+| Publish result | 180,000/180,000 accepted; 0 dropped iterations |
+| WebSocket handshake | p50 2 ms, p95 3 ms, p99 4 ms, max 16 ms |
+| Publish-to-deliver | p50 3 ms, p95 4 ms, p99 6 ms, max 78 ms |
+| PulseWS RSS windows | Early 183.44 MiB; final 162.25 MiB; **decreased 21.19 MiB** |
+| Peak host resources | 41.26% CPU; 6.23 GiB memory used |
+| Peak PulseWS containers | A: 25.74% CPU / 72.59 MiB; B: 24.62% CPU / 100.40 MiB |
+| Peak nginx / Redis | nginx: 13.87% CPU / 140.30 MiB; Redis: 5.32% CPU / 18.24 MiB (4.78 MiB Redis internal peak) |
+| Health gates | 0 connection/subscription/publish failures, actionable drops, or throttles; no restart, OOM, unhealthy container, Redis error, or sustained CPU overload |
+
+The soak used the same-VPS k6 contention model as the capacity benchmark.
+Historical Grafana captures for the stable soak interval remain the final
+evidence required before tagging `v0.1.0`.

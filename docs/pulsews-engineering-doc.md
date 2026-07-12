@@ -396,7 +396,7 @@ peaks, public demo and operations guidance, and retained Grafana evidence.
 | Cluster integration | Compose 2 nodes + Redis: cross-node delivery, cluster presence roster, node-kill → sweeper cleans presence, reconnect through LB | Vitest with `testcontainers` (or a shell harness against Compose) |
 | Negative/security | Tampered signatures, stale `auth_timestamp` (replay), oversized payloads, client events on public channels, unknown app key | Vitest table-driven |
 | Load | k6 scenarios (§6.7); pass/fail = server stays up, drops bounded, p99 recorded | Manual on the VPS, results committed to `docs/loadtest.md` |
-| Soak | 1 h at 50 % of max connections, memory flat | Manual + Grafana |
+| Soak | **Passed:** 1 h at 3,750 connections (50% of max); PulseWS RSS decreased 21.19 MiB between comparison windows | Automated production workflow + Grafana |
 
 CI (GitHub Actions): typecheck + unit + protocol-integration on every push; cluster tests behind a label (need Docker).
 

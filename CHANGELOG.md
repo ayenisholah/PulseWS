@@ -63,6 +63,10 @@ release.
 
 ### Measured
 
+- The release-gating one-hour production soak passed at 3,750 concurrent
+  connections with 180,000 successful publishes, 6 ms delivery p99, zero
+  failures or dropped iterations, and a 21.19 MiB decrease between PulseWS RSS
+  comparison windows.
 - The automatic production benchmark established **7,500 concurrent
   connections** as the stable maximum on the shared 4-vCPU/7.1-GiB VPS, with
   9 ms publish-to-deliver p99 and 4 ms handshake p99. The 10,000 tier reached
