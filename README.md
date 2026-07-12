@@ -15,8 +15,9 @@ REST publishing and the single-node MVP are in place, including public,
 private, and presence channels, rate-limited client events, an opt-in live
 browser demo, Redis-backed multi-node event fan-out, cluster-wide presence,
 dead-node cleanup, connection caps, REST publish throttling, and a production
-Compose cluster verified across two VPS containers. The next step is live
-Grafana dashboard acceptance.
+Compose cluster verified across two VPS containers. The measured stable
+maximum on the shared 4-vCPU VPS is 7,500 concurrent connections with 9 ms
+publish-to-deliver p99 latency.
 
 Implemented:
 
@@ -39,11 +40,12 @@ Implemented:
 | Docker Compose cluster | Done; two-node VPS smoke passed |
 | Prometheus metrics and Grafana dashboard | Implemented and accepted on the VPS |
 | Graceful shutdown and SDK failover | Done; production workflow passed |
-| k6 harness | Implemented; VPS acceptance pending |
-| Measured load-test results | Pending; no estimates published |
+| k6 harness | Implemented; fixed acceptance and tiered VPS benchmark complete |
+| Measured load-test results | 7,500 stable concurrent connections; 9 ms delivery p99 |
 
-No performance numbers are claimed until they are measured and committed with
-the load-test report.
+The measured result includes contention from k6 running on the same VPS. See
+the [load-test report](docs/loadtest.md) for hardware, thresholds, peaks, and
+the failed 10,000-tier stop reason.
 
 ## Why
 

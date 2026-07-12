@@ -63,6 +63,11 @@ release.
 
 ### Measured
 
+- The automatic production benchmark established **7,500 concurrent
+  connections** as the stable maximum on the shared 4-vCPU/7.1-GiB VPS, with
+  9 ms publish-to-deliver p99 and 4 ms handshake p99. The 10,000 tier reached
+  target but failed after k6 dropped 604 publisher iterations; full evidence
+  and contention disclosure are recorded in `docs/loadtest.md`.
 - The fixed 500-connection VPS acceptance passed with zero connection,
   publish, delivery, iteration, or actionable-drop failures; measured latency
   and environment details are recorded in `docs/loadtest.md`.

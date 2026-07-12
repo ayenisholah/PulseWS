@@ -127,10 +127,10 @@ The 3-minute demo everything must serve: `docker compose up` (2 nodes + Redis + 
 
 | ID | Requirement | Target | How measured |
 |---|---|---|---|
-| NFR1 | Concurrent connections, single node | 10,000 target — **record the real max**; replace "10,000+" in public docs with the measured number | k6 ramp on a 2-vCPU node |
-| NFR2 | p99 publish→deliver latency at max load | < 40 ms target — **replace with measured** | Timestamps embedded in k6 message payloads |
-| NFR3 | Cross-node delivery overhead | Measured delta vs same-node delivery | Same k6 harness against the 2-node compose |
-| NFR4 | Memory per connection | Recorded (uWS is the reason to expect it low) | `/metrics` + `process.memoryUsage()` during ramp |
+| NFR1 | Concurrent connections, two-node production cluster | **7,500 measured stable maximum** on the shared 4-vCPU VPS; 10,000 reached but failed the sustained-workload gate | Tiered k6 ramp through VPS-local production nginx |
+| NFR2 | p99 publish→deliver latency at max load | **9 ms measured at 7,500**, below the 40 ms target | Timestamps embedded in k6 message payloads |
+| NFR3 | Cross-node delivery | Same-node and cross-node Prometheus histograms both increased at every passing tier | Capacity harness against the 2-node Compose cluster |
+| NFR4 | Memory per connection | Approx. **6.6 KiB incremental PulseWS RSS per test connection** at 7,500; host peak 5.54 GiB includes co-located k6 | Five-second host and container samples |
 | NFR5 | Security | Secrets never sent to clients; HMAC comparisons constant-time; signature timestamps checked (±600 s) to block replay | Code review + negative tests |
 | NFR6 | Compatibility | `pusher-js` ≥ v8 and the official `pusher` Node server SDK work unmodified except host/port | The integration test suite runs against both |
 | NFR7 | Operability | One-command cluster (`docker compose up`); config errors fail loudly at boot | Manual |

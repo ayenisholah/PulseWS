@@ -1,8 +1,8 @@
 # Load-test report
 
-Status: **500-connection acceptance passed**. This is a small-scale harness
-acceptance result, not the final capacity benchmark or a 10,000-connection
-claim.
+Status: **7,500 concurrent connections is the measured stable maximum** on
+the production two-node VPS topology. The fixed 500-connection acceptance
+remains a separate regression gate.
 
 ## Required test disclosure
 
@@ -59,13 +59,38 @@ condition.
 
 ## Final capacity run
 
-The stable maximum remains **not yet measured**. Ramp through 1,000, 2,500,
-5,000, 7,500, and 10,000 connections on the target host. Stop when errors,
-CPU, memory, Redis health, actionable drops, or latency become unacceptable.
+The automatic benchmark passed 1,000, 2,500, 5,000, and 7,500 connections.
+The exact 10,000 tier reached 10,000 subscriptions but sustained the target
+for only 137 seconds before the co-located k6 publisher stalled while
+allocating an unplanned VU. It dropped 604 iterations and interrupted 10,009
+connection iterations, so the tier failed under the predeclared rules.
 
-Replace or supplement the current 500-tier Grafana captures with the final
-capacity-run view. Include the exact k6 command and stop reason for every tier.
-The strict stop condition is any connection/publish failure, dropped message
-or iteration, container restart/OOM, Redis error, sustained host CPU above
-90%, or publish-to-deliver p99 above 40 ms. The last fully passing tier is the
-reported stable maximum.
+| Field | Measured value at the stable maximum |
+|---|---|
+| Stable maximum | **7,500 concurrent connections and subscriptions**, sustained for 315 seconds |
+| VPS CPU / RAM / OS | 4 vCPU Intel Xeon Platinum KVM VM, 7.1 GiB RAM, Ubuntu 26.04 LTS, no swap |
+| Commit | `b1a14229932474154fb9e87a4b49c3237052421f` |
+| UTC tier interval | 2026-07-12 00:59:53–01:10:51 |
+| PulseWS image | `ghcr.io/ayenisholah/pulsews@sha256:0030ec7970d8ccb1470d0cabf0cce7ecc952009d806c9fede04f223ca227aa9c` |
+| k6 image | `grafana/k6@sha256:a33a0cfdc4d2483d6b7a3a22e726a499ff2831a671a49239104cd34a9937523c` |
+| Capacity path | k6 → VPS-local production nginx (`127.0.0.1:8080`) → two PulseWS nodes; public hostname retained for post-run smoke |
+| Signed publish load | 15,001 requests at 50/s for five minutes; 0 failures |
+| WebSocket handshake latency | p50 2 ms, p95 2 ms, p99 4 ms, max 14 ms |
+| Publish-to-deliver latency | p50 4 ms, p95 6 ms, p99 9 ms, max 45 ms |
+| Peak host resources | 44.14% CPU; 5.54 GiB memory used |
+| Peak PulseWS containers | A: 21.23% CPU / 56.93 MiB; B: 21.84% CPU / 63.99 MiB |
+| Peak nginx / Redis | nginx: 16.96% CPU / 256.90 MiB; Redis: 7.95% CPU / 6.68 MiB (2.38 MiB Redis internal peak) |
+| Approximate PulseWS RSS growth | 48.56 MiB across both nodes, about 6.6 KiB per test connection; excludes nginx, Redis, and k6 |
+| Failure gates | Both delivery scopes increased; 0 dropped iterations, connection/subscription/publish failures, actionable drops, or throttles |
+| Container and Redis health | No restart, OOM, or health-state change; no Redis error/fatal/panic entries |
+| Stop reason | 10,000 failed: 604 dropped publisher iterations and insufficient sustained hold after a k6 unplanned-VU allocation error |
+
+The k6 load generator and PulseWS shared this VPS. CPU, memory, latency, and
+the 7,500 maximum therefore include load-generator contention. At 10,000,
+PulseWS recorded no connection, subscription, publish, or HTTP failures and
+delivery p99 remained 12 ms, but the tier still fails because the generator
+did not maintain the required workload.
+
+The existing Grafana images above document dashboard acceptance at 500
+connections. A historical dashboard capture for the 7,500 UTC interval is
+still required before marking milestone M4 complete.
