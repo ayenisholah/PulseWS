@@ -4,9 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: "Image tag to deploy"
+        description: "Immutable image tag to deploy (for example v0.1.0)"
         required: true
-        default: edge
       run_smoke:
         description: "Run the cluster smoke test after deploy"
         required: true
@@ -34,9 +33,24 @@ jobs:
       VPS_USER: ${{ secrets.VPS_USER }}
       VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
       VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+      IMAGE_TAG: ${{ inputs.image_tag }}
       PULSEWS_IMAGE: ghcr.io/ayenisholah/pulsews:${{ inputs.image_tag }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Validate production image
+        run: |
+          case "$IMAGE_TAG" in
+            edge|latest)
+              echo "Refusing mutable production image tag: $IMAGE_TAG" >&2
+              exit 1
+              ;;
+          esac
+          if ! printf '%s' "$IMAGE_TAG" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'; then
+            echo "Invalid image tag: $IMAGE_TAG" >&2
+            exit 1
+          fi
+          echo "Deploying immutable production image: $PULSEWS_IMAGE"
 
       - name: Configure SSH
         run: |
@@ -52,16 +66,56 @@ jobs:
 
       - name: Deploy stack
         run: |
-          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" "
+          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$VPS_USER@$VPS_HOST" "PULSEWS_IMAGE='$PULSEWS_IMAGE' bash -s" <<'REMOTE'
             set -eu
             mkdir -p /opt/pulsews
             tar -xzf /tmp/pulsews-deploy-bundle.tgz -C /opt/pulsews
             test -f /opt/pulsews/deploy/pulsews.config.json
-            export PULSEWS_IMAGE='$PULSEWS_IMAGE'
-            docker compose -f /opt/pulsews/deploy/docker-compose.yml pull
-            docker compose -f /opt/pulsews/deploy/docker-compose.yml up -d
-            docker compose -f /opt/pulsews/deploy/docker-compose.yml ps
-          "
+            env_file=/opt/pulsews/deploy/.env
+            touch "$env_file"
+            if grep -q '^PULSEWS_IMAGE=' "$env_file"; then
+              sed -i "s|^PULSEWS_IMAGE=.*|PULSEWS_IMAGE=$PULSEWS_IMAGE|" "$env_file"
+            else
+              printf '\nPULSEWS_IMAGE=%s\n' "$PULSEWS_IMAGE" >> "$env_file"
+            fi
+            chmod 600 "$env_file"
+
+            compose_file=/opt/pulsews/deploy/docker-compose.yml
+            docker compose -f "$compose_file" pull
+            docker compose -f "$compose_file" up -d
+
+            node_a=$(docker compose -f "$compose_file" ps -q pulsews-a)
+            node_b=$(docker compose -f "$compose_file" ps -q pulsews-b)
+            test -n "$node_a"
+            test -n "$node_b"
+
+            attempts=0
+            while :; do
+              health_a=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$node_a")
+              health_b=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$node_b")
+              if [ "$health_a" = healthy ] && [ "$health_b" = healthy ]; then
+                break
+              fi
+              attempts=$((attempts + 1))
+              if [ "$attempts" -ge 30 ]; then
+                echo "PulseWS nodes did not become healthy: a=$health_a b=$health_b" >&2
+                exit 1
+              fi
+              sleep 2
+            done
+
+            image_a=$(docker inspect --format '{{.Config.Image}}' "$node_a")
+            image_b=$(docker inspect --format '{{.Config.Image}}' "$node_b")
+            digest_a=$(docker inspect --format '{{.Image}}' "$node_a")
+            digest_b=$(docker inspect --format '{{.Image}}' "$node_b")
+            test "$image_a" = "$PULSEWS_IMAGE"
+            test "$image_b" = "$PULSEWS_IMAGE"
+            test "$digest_a" = "$digest_b"
+
+            echo "Verified pulsews-a: image=$image_a digest=$digest_a health=$health_a"
+            echo "Verified pulsews-b: image=$image_b digest=$digest_b health=$health_b"
+            docker compose -f "$compose_file" ps
+          REMOTE
 
       - uses: actions/setup-node@v4
         if: ${{ inputs.run_smoke || inputs.run_failover }}

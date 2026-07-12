@@ -122,6 +122,22 @@ describe("production container and Compose cluster", () => {
     expect(workflow).toContain('test "$smoke_status" -eq 0');
   });
 
+  test("pins and verifies an immutable image during production deployment", async () => {
+    const workflow = await read(".github/workflows/deploy-production.yml");
+
+    expect(workflow).not.toContain("default: edge");
+    expect(workflow).toContain("Refusing mutable production image tag");
+    expect(workflow).toContain("PULSEWS_IMAGE=$PULSEWS_IMAGE");
+    expect(workflow).toContain("chmod 600 \"$env_file\"");
+    expect(workflow).toContain("ps -q pulsews-a");
+    expect(workflow).toContain("ps -q pulsews-b");
+    expect(workflow).toContain('test "$image_a" = "$PULSEWS_IMAGE"');
+    expect(workflow).toContain('test "$image_b" = "$PULSEWS_IMAGE"');
+    expect(workflow).toContain('test "$digest_a" = "$digest_b"');
+    expect(workflow).toContain("Verified pulsews-a:");
+    expect(workflow).toContain("Verified pulsews-b:");
+  });
+
   test("provides a fixed, evidence-preserving 500-connection acceptance gate", async () => {
     const [workflow, runner] = await Promise.all([
       read(".github/workflows/load-acceptance.yml"),

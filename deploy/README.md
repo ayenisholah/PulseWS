@@ -33,8 +33,11 @@ The repository now supports an Actions-based image and deployment flow:
 
 1. `container-image.yml` builds the production image on GitHub Actions and
    pushes it to `ghcr.io/ayenisholah/pulsews`.
-2. `deploy-production.yml` uploads the `deploy/` bundle to the VPS, then runs
-   `docker compose pull` and `docker compose up -d` over SSH.
+2. `deploy-production.yml` requires an explicit immutable image tag, uploads
+   the `deploy/` bundle to the VPS, and persists that image in
+   `/opt/pulsews/deploy/.env` before running Compose over SSH. The deployment
+   fails unless both PulseWS nodes are healthy on the requested tag and the
+   same image digest. Mutable `edge` and `latest` tags are rejected.
 3. Your Windows machine never needs Docker for this deployment path.
 
 Before the first deploy:
