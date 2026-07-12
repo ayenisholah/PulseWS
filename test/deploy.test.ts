@@ -52,7 +52,7 @@ describe("production container and Compose cluster", () => {
 
     expect(nginx).toContain("least_conn;");
     expect(nginx).toContain("worker_processes auto;");
-    expect(nginx).toContain("worker_connections 4096;");
+    expect(nginx).toContain("worker_connections 8192;");
     expect(nginx).toContain("worker_rlimit_nofile 65535;");
     expect(nginx).toContain("proxy_set_header Upgrade $http_upgrade;");
     expect(nginx).toContain('proxy_set_header Connection "upgrade";');
